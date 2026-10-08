@@ -4,13 +4,18 @@ from datetime import datetime, timezone
 import hashlib
 import re
 import secrets
+import threading
 import time
 from urllib.parse import urlencode, urljoin, urlsplit
 
 from .http import WebSession, form_values
 from .models import Cell, Contest, Medals, Reference, Rules, Submission, TeamScore, VPError
+from .originals import OriginalReplay, classify, load_metadata
 from .parsing import directory_name, medals_from_html
 from .scoring import verdict
+
+_api_lock = threading.Lock()
+_last_api_request = 0.0
 
 
 def signed_parameters(method: str, params: dict, key: str, secret: str,
@@ -33,19 +38,23 @@ class Gym:
         self.handle = account.get("handle", "")
         self.web = WebSession(self.origin, account)
         self.start_time: float | None = None
-        self._last_api = 0.0
         self._original = None
         self.submissions_complete = False
+        self._replay = None
+        self._next_replay_attempt = 0.0
+        self._replay_error = ""
 
     def api(self, method: str, **params):
+        global _last_api_request
         if not self.account.get("api_key") or not self.account.get("api_secret"):
             raise VPError("Gym standings require your Codeforces API key and secret in ~/.config/vp/config.json.")
-        remaining = 2.1 - (time.monotonic() - self._last_api)
-        if remaining > 0:
-            time.sleep(remaining)
-        self._last_api = time.monotonic()
-        p = signed_parameters(method, params, self.account["api_key"], self.account["api_secret"])
-        r = self.web.get(self.origin + "/api/" + method, params=p)
+        with _api_lock:
+            remaining = 2.1 - (time.monotonic() - _last_api_request)
+            if remaining > 0:
+                time.sleep(remaining)
+            _last_api_request = time.monotonic()
+            p = signed_parameters(method, params, self.account["api_key"], self.account["api_secret"])
+            r = self.web.get(self.origin + "/api/" + method, params=p)
         try:
             response = r.json()
         except ValueError:
@@ -199,21 +208,74 @@ class Gym:
         return rows
 
     def reference(self, contest: Contest, elapsed: float) -> Reference:
-        if elapsed < contest.rules.duration:
-            return Reference(message="Original scoreboard is final-only; live statistics are unavailable.")
         if self._original is None:
             self._original = self.api("contest.standings", contestId=self.id, showUnofficial=False, participantTypes="CONTESTANT")
         released = contest.rules.freeze_at is None
-        if not released:
+        if not released and elapsed >= contest.rules.duration:
             # Original historic 'frozen=false' cannot release the current VP.
             soup = self.web.soup(self.url + "/standings", params={"locale": "en"})
             text = soup.get_text(" ", strip=True)
             native_finished = bool(re.search(r"virtual (?:participation|contest).*?(?:has ended|finished|completed)", text, re.I))
             released = native_finished and not re.search(r"scoreboard (?:is |remains )?frozen", text, re.I)
-        if contest.rules.frozen(elapsed, released):
-            return Reference(released=released, message="Waiting for the native VP scoreboard to unfreeze.")
-        final = self.api("contest.standings", contestId=self.id, showUnofficial=False, participantTypes="CONTESTANT")
-        self._original = final
+        final = self._original
+        if elapsed >= contest.rules.duration:
+            final = self.api("contest.standings", contestId=self.id, showUnofficial=False, participantTypes="CONTESTANT")
+            self._original = final
         complete = final["contest"]["phase"] == "FINISHED" and not final["contest"].get("frozen", False)
         rows = self.rows_from_api(final, contest)
+        if any(raw["party"].get("ghost") for raw in final["rows"]):
+            try:
+                # Imported CONTESTANT ghosts can have lost starred-team flags.
+                classify(rows, contest, load_metadata(contest))
+            except VPError as exc:
+                return Reference(released=released, message=str(exc))
+        if elapsed < contest.rules.duration or contest.rules.frozen(elapsed, released):
+            if complete and self._replay is None and time.monotonic() >= self._next_replay_attempt:
+                self._next_replay_attempt = time.monotonic() + 120
+                try:
+                    self._replay = self._original_replay(contest, rows)
+                except VPError as exc:
+                    self._replay_error = str(exc)
+            if self._replay is not None:
+                return self._replay.at(contest, elapsed, released=released)
+            return Reference(released=released, message=self._replay_error or "Original submission events unavailable; final scoreboard only.")
         return Reference(rows, complete, complete, released, "" if complete else "Waiting for original final standings.")
+
+    def _original_replay(self, contest: Contest, rows: list[TeamScore]) -> OriginalReplay:
+        from .originals import cache_archive_submissions, cache_path, load_archive_submissions
+        from .storage import read_json, write_json
+        from dataclasses import asdict
+        if any(raw["party"].get("ghost") for raw in self._original["rows"]):
+            metadata = load_metadata(contest)
+            events = load_archive_submissions(contest, metadata)
+            replay = OriginalReplay(contest, metadata["teams"], events, rows)
+            cache_archive_submissions(metadata, events)
+            return replay
+        source = contest.url + "/original-submissions"
+        cache = read_json(cache_path("cf-events", source))
+        teams = [{"id": row.id, "name": row.name, "official": row.eligible} for row in rows]
+        if cache.get("source") == source:
+            try:
+                return OriginalReplay(contest, teams, [Submission(**s) for s in cache["submissions"]], rows)
+            except (KeyError, TypeError, VPError):
+                pass
+        submissions = []
+        offset = 1
+        while True:
+            data = self.api("contest.status", contestId=self.id, **{"from": offset, "count": 1000})
+            for raw in data:
+                party = raw["author"]
+                if party["participantType"] != "CONTESTANT":
+                    continue
+                members = ";".join(m["handle"] for m in party["members"])
+                ident = "team:" + str(party["teamId"]) if "teamId" in party else "ghost:" + party.get("teamName", "") if party.get("ghost") else "user:" + members
+                relative = float(raw["relativeTimeSeconds"])
+                if not 0 <= relative < contest.rules.duration:
+                    continue
+                submissions.append(Submission(str(raw["id"]), ident, raw["problem"]["index"], relative, verdict(raw.get("verdict"))))
+            if len(data) < 1000:
+                break
+            offset += 1000
+        replay = OriginalReplay(contest, teams, submissions, rows)
+        write_json(cache_path("cf-events", source), {"source": source, "submissions": [asdict(s) for s in submissions]})
+        return replay

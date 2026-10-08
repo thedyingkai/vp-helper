@@ -21,7 +21,8 @@
     "Compiler choices from platform form",
     "Removed upstream local problem-testing helper and its CLI command",
     "Bundled README describes the installed submit entry",
-    "Normalized trailing whitespace without changing program behavior"
+    "Normalized trailing whitespace without changing program behavior",
+    "Server-confirmed submission IDs and immediate pending notifications to the VP monitor"
   ],
   "excluded_files": [
     "cf_test.py"

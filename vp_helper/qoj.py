@@ -6,10 +6,11 @@ import time
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
+import requests
 
 from .http import WebSession, form_values
 from .models import Cell, Contest, Reference, Rules, Submission, TeamScore, VPError
-from .originals import classify, load_metadata
+from .originals import OriginalReplay, cache_archive_submissions, classify, load_archive_submissions, load_metadata
 from .parsing import directory_name, js_value, medals_from_html, seconds, timestamp
 from .scoring import verdict
 
@@ -26,6 +27,10 @@ class QOJ:
         self.submissions_complete = False
         self._finished_start: float | None = None
         self._relative_start_verified: float | None = None
+        self._verdict_cache = {}
+        self._replay = None
+        self._replay_error = ""
+        self._next_replay_attempt = 0.0
 
     def _page(self, suffix: str = "", **params) -> BeautifulSoup:
         return self.web.soup(self.url + suffix, params={"locale": "en", **params})
@@ -159,6 +164,7 @@ class QOJ:
     def submit_configuration(self, contest: Contest) -> dict:
         ids = [int(x) for x in contest.problems.values()]
         return {"name": contest.name, "base_url": self.url, "problems": "".join(contest.problems),
+                "handle": self.handle,
                 "offset": ids[0], "user_agent": self.web.session.headers["User-Agent"],
                 "cookie": self.account.get("cookie", ""), "problem_ids": contest.problems}
 
@@ -217,12 +223,25 @@ class QOJ:
                 if node is None:
                     raise VPError("QOJ submission result column is missing.")
                 status = node.get_text(" ", strip=True)
+                judging = bool(row.select_one('[id^="status_details_"]') or
+                               re.search(r"update_judgement_status_details\s*\(", str(row)))
+                if judging:
+                    result[sid] = Submission(sid, "me", label, at, "PENDING")
+                    self._verdict_cache.pop(sid, None)
+                    continue
                 score = float(status) if re.fullmatch(r"\d+(?:\.\d+)?", status) else None
                 if score is not None and score < 100:
                     # QOJ numeric zero alone does not distinguish WA/RE/MLE/CE.
-                    detail = self.web.soup(self.origin + f"/submission/{sid}")
-                    candidates = [x.get_text(" ", strip=True) for x in detail.select(".uoj-status, .panel-title, .card-header, .uoj-score, table td")]
-                    status = next((s for s in candidates if any(t in s.upper() for t in ("WRONG", "ERROR", "LIMIT", "ACCEPTED", "JUDGING", "WAITING"))), status)
+                    cached = self._verdict_cache.get(sid)
+                    if cached and cached[0] in (None, score) and time.monotonic() < cached[2]:
+                        status = cached[1]
+                    else:
+                        detail = self.web.soup(self.origin + f"/submission/{sid}")
+                        candidates = [x.get_text(" ", strip=True) for x in detail.select(".uoj-status, .panel-title, .card-header, .uoj-score, table td")]
+                        status = next((s for s in candidates if any(t in s.upper() for t in ("WRONG", "ERROR", "LIMIT", "ACCEPTED", "JUDGING", "WAITING"))), status)
+                        parsed = verdict(status, score)
+                        if parsed != "PENDING":
+                            self._verdict_cache[sid] = (score, parsed, time.monotonic() + 300 + int(sid) % 300)
                 result[sid] = Submission(sid, "me", label, at, verdict(status, score))
             pages = [int(m[1]) for a in soup.select("a[href]") if (m := re.search(r"[?&]page=(\d+)", a["href"]))]
             if before or not found or page >= max(pages, default=page):
@@ -230,6 +249,11 @@ class QOJ:
                 break
             page += 1
         return list(result.values())
+
+    def seed_submissions(self, submissions: list[Submission]) -> None:
+        for item in submissions:
+            if item.verdict not in ("PENDING", "CORRECT", "TOO-LATE"):
+                self._verdict_cache[item.id] = (None, item.verdict, time.monotonic() + 300 + int(item.id) % 300)
 
     @staticmethod
     def reference_from_html(html: str, contest: Contest, elapsed: float, *, released: bool = False) -> Reference:
@@ -259,8 +283,11 @@ class QOJ:
                 if label not in cells:
                     continue
                 solved = col[0] == col[4] and col[4] > 0
-                cells[label] = Cell(int(col[3]) + int(solved), int(col[5]), solved,
-                                    int(col[1] // 60) if solved else None)
+                # QOJ stores attempts before the selected submission, even
+                # when that last submission failed. Its own UI renders -N
+                # and ?N as col[3] + 1, not col[3].
+                cells[label] = (Cell(pending=int(col[3]) + 1) if col[5] else
+                                Cell(int(col[3]) + 1, 0, solved, int(col[1] // 60) if solved else None))
             row = TeamScore(str(info[0]), info[3], cells, eligible=info[2] == 3,
                             penalty_minutes=contest.rules.penalty_minutes)
             if row.penalty != int(raw[1] // 60):
@@ -314,10 +341,33 @@ class QOJ:
             no_hidden = all(isinstance(col, list) and len(col) >= 6 and not col[5] for col in values)
             released = (self.start_time is not None and self._finished_start == self.start_time
                         and js_value(html, "my_name", "") == self.handle and no_hidden)
+        # Keep the public archive connection across metadata and event downloads.
+        # This session carries none of the judge account's cookies.
+        with requests.Session() as public_web:
+            return self._original_reference(html, contest, elapsed, released, public_web)
+
+    def _original_reference(self, html: str, contest: Contest, elapsed: float, released: bool, public_web) -> Reference:
+        try:
+            metadata = load_metadata(contest, web=public_web)
+        except VPError as exc:
+            return Reference(message=str(exc), released=released)
+        contest.extra["original_eligibility"] = metadata
+        # Imported ghosts contain final totals. Validate a separate original
+        # event stream against those totals before exposing any partial scores.
+        final = self.reference_from_html(html, contest, contest.rules.duration, released=True)
+        final.released = released
+        if not final.complete:
+            return final
         if elapsed >= contest.rules.duration and not contest.rules.frozen(elapsed, released):
+            return final
+        if self._replay is None and time.monotonic() >= self._next_replay_attempt:
+            self._next_replay_attempt = time.monotonic() + 120
             try:
-                metadata = load_metadata(contest)
+                events = load_archive_submissions(contest, metadata, web=public_web)
+                self._replay = OriginalReplay(contest, metadata["teams"], events, final.rows)
+                cache_archive_submissions(metadata, events)
             except VPError as exc:
-                return Reference(message=str(exc), released=released)
-            contest.extra["original_eligibility"] = metadata
-        return self.reference_from_html(html, contest, elapsed, released=released)
+                self._replay_error = str(exc)
+        if self._replay is not None:
+            return self._replay.at(contest, elapsed, released=released)
+        return Reference(released=released, message=self._replay_error)

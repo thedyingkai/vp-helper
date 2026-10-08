@@ -4,6 +4,7 @@
   "original_sha256": "5e93d3720ef21485a2bdae4125d66015a56e2fef1b027b34bd38bbcea6c9b490",
   "changes": [
     "Fixed interpreter path and help before configuration",
-    "Optional explicit problem ID mapping"
+    "Optional explicit problem ID mapping",
+    "Server-confirmed submission IDs and immediate pending notifications to the VP monitor"
   ]
 }

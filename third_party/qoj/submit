@@ -15,8 +15,12 @@ Requirements for contest.json
 import sys
 import json
 import requests
+import time
 from pathlib import Path
+from urllib.parse import urljoin, urlsplit
 from selectolax.lexbor import LexborHTMLParser
+from vp_helper.receipts import qoj_id_from_list, qoj_submission_id, qoj_submission_ids, record_receipt
+from vp_helper.models import VPError
 
 LANG_MAPPING = {
     '.cpp': 'C++20',
@@ -38,13 +42,14 @@ contest_offset: int = contest['offset']
 user_agent: str = contest['user_agent']
 cookie: str = contest['cookie']
 
-def submit(url: str, lang: str, code: str) -> None:
+def submit(url: str, lang: str, code: str, problem: str) -> None:
     session = requests.Session()
     session.headers.update({
         'User-Agent': user_agent,
         'Cookie': cookie,
     })
-    response = session.get(url)
+    response = session.get(url, timeout=(10, 40))
+    response.raise_for_status()
 
     parser = LexborHTMLParser(response.text)
     token_node = parser.css_first('input[name="_token"]')
@@ -56,6 +61,15 @@ def submit(url: str, lang: str, code: str) -> None:
     if not dynamic_token:
         raise RuntimeError('Failed to get token')
 
+    # Some QOJ versions redirect to the submissions list instead of to an
+    # assigned ID. Capture the old IDs so an old submission cannot look new.
+    handle = contest.get('handle') or contest.get('vp_context', {}).get('handle')
+    previous = None
+    if handle:
+        baseline = session.get(contest_base_url + '/submissions', params={'submitter': handle, 'locale': 'en'}, timeout=(10, 40))
+        if baseline.status_code == 200 and urlsplit(baseline.url).path == urlsplit(contest_base_url).path + '/submissions':
+            previous = qoj_submission_ids(baseline.text)
+
 
     payload_files = {
         '_token': (None, dynamic_token),
@@ -66,14 +80,29 @@ def submit(url: str, lang: str, code: str) -> None:
         'submit-answer': (None, 'answer')
     }
 
-    submit_response = session.post(url, files=payload_files)
-
-    if submit_response.status_code == 200:
-        print('Submission succeeded.')
-        print(f'Check {contest_base_url}/submissions for the result.')
-    else:
-        print('Submission failed.')
-        print('Status code', submit_response.status_code)
+    submitted_at = time.time()
+    try:
+        submit_response = session.post(url, files=payload_files, allow_redirects=False, timeout=(10, 40))
+    except requests.RequestException:
+        raise SystemExit('Server confirmation unavailable. Check the submissions page before retrying.') from None
+    origin = 'https://' + urlsplit(contest_base_url).netloc
+    sid = qoj_submission_id(submit_response, origin)
+    target = urljoin(url, submit_response.headers.get('Location', ''))
+    destination = urlsplit(target)
+    if (sid is None and previous is not None and submit_response.status_code in (302, 303)
+            and destination.netloc == urlsplit(origin).netloc and destination.scheme == 'https'
+            and destination.path in ('/submissions', urlsplit(contest_base_url).path + '/submissions')):
+        current = session.get(contest_base_url + '/submissions', params={'submitter': handle, 'locale': 'en'}, timeout=(10, 40))
+        if current.status_code == 200:
+            sid = qoj_id_from_list(current.text, previous, contest_base_url, urlsplit(url).path.rsplit('/', 1)[-1], handle)
+    if sid is None:
+        raise SystemExit('Submission was not confirmed. Check the submissions page before retrying.')
+    print(f'Submission #{sid}: PENDING', flush=True)
+    try:
+        record_receipt(contest, sid, problem, submitted_at)
+    except (VPError, OSError) as exc:
+        print('Submitted, but the monitor notification failed: ' + str(exc))
+    print(f'Check {origin}/submission/{sid} for the result.')
 
 
 def confirm(message: str) -> bool:
@@ -121,6 +150,6 @@ if __name__ == '__main__':
 
     if yes_by_default or confirm('Do you want to continue?'):
         code = code_path.read_text('utf8')
-        submit(url, lang, code)
+        submit(url, lang, code, problem)
     else:
         print('Aborted.')

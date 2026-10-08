@@ -18,6 +18,7 @@ from rich import box
 
 from .models import Contest, Reference, Submission, VPError
 from .parsing import contest_url, contest_id_url
+from .receipts import ReceiptReader
 from .scoring import rank_of, rank_label, prize_of, recent_submissions, score_submissions, statistics, submission_history
 from .storage import config_directory, desktop, file_lock, read_history, read_json, state_directory, update_history, write_json
 from .tui import display, TerminalDashboard
@@ -103,6 +104,17 @@ def configure_submit(api, contest: Contest, directory: Path) -> None:
         os.replace(temporary, selected)
 
 
+def bind_submit_context(directory: Path, state_path: Path, state: dict) -> None:
+    path = directory / "contest.json"
+    if not path.is_file():
+        return
+    config = read_json(path)
+    config.setdefault("handle", state["handle"])
+    config["vp_context"] = {"state_path": str(state_path), "start_time": state["start_time"],
+                            "url": state["url"], "handle": state["handle"]}
+    write_json(path, config)
+
+
 def tmux_exists(name: str) -> bool:
     return subprocess.run(["tmux", "has-session", "-t", name], capture_output=True).returncode == 0
 
@@ -172,6 +184,7 @@ def prepare_start(url: str) -> tuple[Path, dict]:
                  "submissions": saved.get("submissions", []), "recent": saved.get("recent", []),
                  "history_path": str(root / "vp_history.csv")}
         write_json(path, state)
+        bind_submit_context(directory, path, state)
         write_json(state_root / "current.json", {"state_path": str(path)})
         console.print("Prepared " + str(directory), markup=False)
         return path, state
@@ -180,6 +193,7 @@ def prepare_start(url: str) -> tuple[Path, dict]:
 def start(url: str) -> None:
     # Release the cross-shell preparation lock before entering an attached TUI.
     path, state = prepare_start(url)
+    bind_submit_context(Path(state["directory"]), path, state)
     if tmux_exists(state["tmux_session"]):
         pane = state["tmux_session"] + ":0.0"
         dead = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{pane_dead}"],
@@ -193,17 +207,12 @@ def start(url: str) -> None:
         launch(path, state)
 
 
-def poll(api, contest: Contest, elapsed: float, refresh_reference: bool):
+def poll(api, contest: Contest, elapsed: float, refresh_reference: bool = False):
     """Keep slow requests outside the terminal's input and redraw loop."""
-    incoming = reference = None
-    error = ""
     try:
-        incoming = api.submissions(contest)
-        if refresh_reference:
-            reference = api.reference(contest, elapsed)
+        return (api.reference(contest, elapsed) if refresh_reference else api.submissions(contest)), ""
     except VPError as exc:
-        error = str(exc)
-    return incoming, reference, error
+        return None, str(exc)
 
 
 def monitor(path: Path) -> None:
@@ -219,22 +228,35 @@ def monitor(path: Path) -> None:
         if state.get("handle") and api.handle != state["handle"]:
             raise VPError("The configured account changed; restore this VP's account before resuming it.")
         api.start_time = state["start_time"]
+        reference_api = adapter(contest.url, config)
+        reference_api.start_time = state["start_time"]
         submissions = {x["id"]: Submission(**x) for x in state.get("submissions", [])}
+        final_score_key = (score_submissions(list(submissions.values()), list(contest.problems),
+                                           contest.rules, contest.rules.duration).rank_key
+                           if state.get("status") == "complete" else None)
+        if hasattr(api, "seed_submissions"):
+            api.seed_submissions(list(submissions.values()))
+        receipts = ReceiptReader(path, state)
         reference = Reference()
-        last_poll = last_reference = 0.0
-        next_poll = 0.0
+        last_poll = 0.0
+        next_poll = next_reference = 0.0
         backoff = 5.0
-        message = "Connecting…"
+        submission_error = reference_error = ""
         have_polled = False
-        future = None
+        future = reference_future = None
         next_render = 0.0
-        with ThreadPoolExecutor(max_workers=1) as network, TerminalDashboard() as view:
+        with ThreadPoolExecutor(max_workers=2) as network, TerminalDashboard() as view:
             while view.input():
                 elapsed = time.time() - state["start_time"]
                 now = time.monotonic()
                 fresh_submissions = False
+                for receipt in receipts.read():
+                    if receipt.id not in submissions:
+                        submissions[receipt.id] = receipt
+                        fresh_submissions = True
+                        next_poll = 0.0
                 if future is not None and future.done():
-                    incoming, refreshed, error = future.result()
+                    incoming, error = future.result()
                     future = None
                     if incoming is not None:
                         fresh_submissions = True
@@ -242,17 +264,23 @@ def monitor(path: Path) -> None:
                         for submission in incoming:
                             submissions[submission.id] = submission
                         last_poll = now
+                    submission_error = error
+                    pending = any(s.verdict == "PENDING" for s in submissions.values())
+                    backoff = min(60.0, max(5.0, backoff * 2)) if error else 2.0 if pending else 5.0
+                    next_poll = now + backoff
+                if reference_future is not None and reference_future.done():
+                    refreshed, reference_error = reference_future.result()
+                    reference_future = None
                     if refreshed is not None:
                         reference = refreshed
-                        last_reference = now
-                    message = error or reference.message
-                    backoff = min(60.0, backoff * 2) if error else 5.0
-                    next_poll = now + backoff
+                    next_reference = now + 30
                 if future is None and now >= next_poll:
-                    refresh_reference = (now - last_reference >= 30
-                                         or elapsed >= contest.rules.duration and not reference.complete)
-                    future = network.submit(poll, api, contest, elapsed, refresh_reference)
-                frozen = contest.rules.frozen(elapsed, reference.released)
+                    future = network.submit(poll, api, contest, elapsed)
+                if reference_future is None and now >= next_reference:
+                    reference_future = network.submit(poll, reference_api, contest, elapsed, True)
+                current_reference = (reference.replay.at(contest, elapsed, released=reference.released)
+                                     if reference.replay is not None else reference)
+                frozen = contest.rules.frozen(elapsed, current_reference.released)
                 # Rebuild from canonical submissions, including when resuming old
                 # state or offline. Discovery order is not submission chronology.
                 recent = recent_submissions(list(submissions.values()), list(contest.problems), contest.rules, elapsed)
@@ -260,15 +288,19 @@ def monitor(path: Path) -> None:
                 private = score_submissions(list(submissions.values()), list(contest.problems), contest.rules,
                                             elapsed, name=api.handle)
                 public = score_submissions(list(submissions.values()), list(contest.problems), contest.rules,
-                                           elapsed, public=True, released=reference.released, name=api.handle)
+                                           elapsed, public=True, released=current_reference.released, name=api.handle)
                 all_final = all(s.verdict != "PENDING" for s in submissions.values() if 0 <= s.time < contest.rules.duration)
-                finalized = (elapsed >= contest.rules.duration and not frozen and reference.complete
+                finalized = (elapsed >= contest.rules.duration and not frozen and current_reference.complete
                              and api.submissions_complete and have_polled and all_final)
-                rank = "?" if frozen else str(rank_of(private, reference.rows)) if reference.complete else "—"
-                shown_rank = rank_label(private, reference.rows) if reference.complete and not frozen else rank
-                prize = prize_of(private, reference.rows, contest.medals) if finalized else ""
-                stats = statistics(reference.rows + [public], list(contest.problems)) if reference.statistics_complete else None
-                shown_message = message
+                rank = "?" if frozen else str(rank_of(private, current_reference.rows)) if current_reference.complete else "—"
+                shown_rank = rank_label(private, current_reference.rows) if current_reference.complete and not frozen else rank
+                prize = prize_of(private, current_reference.rows, contest.medals) if finalized else ""
+                stats = statistics(current_reference.rows + [public], list(contest.problems)) if current_reference.statistics_complete else None
+                shown_message = submission_error or reference_error or current_reference.message
+                if finalized and current_reference.replay is not None and not submission_error and not reference_error:
+                    shown_message = "Finished"
+                elif not have_polled and not shown_message:
+                    shown_message = "Connecting…"
                 if finalized and not shown_message:
                     shown_message = "Finished"
                 elif frozen and not shown_message:
@@ -279,14 +311,19 @@ def monitor(path: Path) -> None:
                     view.update(display(contest, elapsed, private, shown_rank, prize, stats, records, shown_message))
                     next_render = now + 0.25
                 if fresh_submissions:
+                    preserve_final = (state.get("status") == "complete" and all_final
+                                      and private.rank_key == final_score_key)
+                    if finalized:
+                        final_score_key = private.rank_key
                     state.update(contest=contest.to_dict(), submissions=[asdict(x) for x in submissions.values()],
                                  recent=recent, submission_history=records, last_sync_time=time.time(),
-                                 status="complete" if finalized else "running")
+                                 status="complete" if finalized or preserve_final else "running")
                     write_json(path, state)
                     row = {"start_time": datetime.fromtimestamp(state["start_time"], timezone.utc).isoformat(),
                            "contest": contest.name, "url": contest.url, "solved": private.solved,
                            "penalty": private.penalty, "rank": rank if finalized else "", "prize": prize}
-                    update_history(Path(state["history_path"]), row)
+                    if finalized or not preserve_final:
+                        update_history(Path(state["history_path"]), row)
                 time.sleep(0.1)
 
 

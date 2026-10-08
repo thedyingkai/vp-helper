@@ -149,6 +149,19 @@ def submit_problem(browser, contest, lang, source, guru):
 
 """ submit problem """
 def submit(browser, handle, contest, problem, lang, source, show, guru):
+    from pathlib import Path
+    import json
+    from vp_helper.receipts import cf_submission_id, cf_submission_ids, record_receipt
+    from vp_helper.models import VPError
+    previous = None
+    if not guru:
+        prefix = 'gym' if len(contest) >= 6 else 'contest'
+        try:
+            response = browser.session.get('https://codeforces.com/' + prefix + '/' + contest + '/my', timeout=(10, 40))
+            if response.status_code == 200 and response.url.split('?')[0].endswith('/' + contest + '/my'):
+                previous = cf_submission_ids(response.text)
+        except requests.RequestException:
+            pass
     if guru:
         print("Submitting to acmsguru " + problem + " as " + handle)
     else:
@@ -164,8 +177,20 @@ def submit(browser, handle, contest, problem, lang, source, show, guru):
         browser.open("https://codeforces.com/contest/" + contest + "/submit/" + problem.upper())
 
     """ show submission """
-    if submit_problem(browser, contest, lang, source, pid) and show:
-        watch(handle)
+    submitted_at = time.time()
+    if submit_problem(browser, contest, lang, source, pid):
+        if previous is not None:
+            sid = cf_submission_id(browser.parsed, previous, contest, problem, handle)
+            if sid is not None:
+                print('Submission #' + sid + ': PENDING', flush=True)
+                config = Path('contest.json')
+                if config.is_file():
+                    try:
+                        record_receipt(json.loads(config.read_text()), sid, problem.upper(), submitted_at)
+                    except (VPError, OSError) as exc:
+                        print('Submitted, but the monitor notification failed: ' + str(exc))
+        if show:
+            watch(handle)
 
 """ submit, possibly len(args) > 1 """
 def submit_files(browser, defaulthandle, defaultcontest, defaultprob, defext, defaultlang, args, show, guru):

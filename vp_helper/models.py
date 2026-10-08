@@ -127,3 +127,4 @@ class Reference:
     statistics_complete: bool = False
     released: bool = False
     message: str = ""
+    replay: object | None = None

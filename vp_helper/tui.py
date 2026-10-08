@@ -72,7 +72,7 @@ class Dashboard:
             table.add_row("", key, "", "", *(str(self.stats[key][p]) if self.stats else "—"
                                              for p in self.contest.problems))
         labels = self._record_table()
-        labels.add_row("problem", "submission", "time", "result", "", style="bold black on #eeeeee")
+        labels.add_row("problem", "submission", "time", "result", style="bold black on #eeeeee")
         return Group(heading, Text(" "), table, Text(" "), labels)
 
     @staticmethod
@@ -82,7 +82,6 @@ class Dashboard:
         results.add_column(width=14, justify="center", no_wrap=True)
         results.add_column(width=12, justify="center", no_wrap=True)
         results.add_column(ratio=1, no_wrap=True)
-        results.add_column(width=10, justify="right", no_wrap=True)
         return results
 
     def records(self):
@@ -92,12 +91,12 @@ class Dashboard:
             practice = item.get("practice", False)
             if practice:
                 color = PRACTICE_ACCEPTED if v == "CORRECT" else PRACTICE_WRONG
-                values = [item["problem"], "#" + item["id"], clock(item["time"]), v, "practice"]
+                values = [item["problem"], "#" + item["id"], clock(item["time"]), v + " · practice"]
                 results.add_row(*values, style=color)
             else:
                 color = "#008000" if v == "CORRECT" else "#808080" if v in ("PENDING", "TOO-LATE") else "#ff0000"
                 results.add_row(Text(item["problem"]), Text("#" + item["id"]),
-                                Text(clock(item["time"])), Text(v, style=color), "")
+                                Text(clock(item["time"])), Text(v, style=color))
         if not self.submissions:
             results.add_row(Text("No submissions yet", style="#555555"))
         return results
