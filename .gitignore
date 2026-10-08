@@ -1,0 +1,35 @@
+# Development and test artifacts
+tests/
+test/
+fixtures/
+test_*.py
+*_test.py
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+.venv/
+venv/
+
+# Local accounts, contest work and deployment credentials
+.env
+.env.*
+config.json
+contest.json
+contestid
+secret
+logindata
+*.cookie
+*.cookies
+*.pem
+*.key
+*deploy-key*
+authorized_keys
+vp_history.csv
+work/
+outputs/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,28 @@
+--- upstream/submit
++++ installed/submit
+@@ -1,3 +1,4 @@
++#!/opt/vp-helper/current/venv/bin/python
+ '''
+ Requirements for contest.json
+ 
+@@ -22,6 +23,10 @@
+     '.cc': 'C++20',
+     '.py': 'PyPy3',
+ }
++
++if len(sys.argv) == 2 and sys.argv[1] in ('-h', '--help'):
++    print('Usage: submit code.cpp [-y]')
++    sys.exit(0)
+ 
+ with open('contest.json', 'r') as f:
+     contest = json.load(f)
+@@ -104,7 +109,8 @@
+         print(f'Error: cannot find problem {problem}')
+         sys.exit(-1)
+ 
+-    url = contest_base_url + '/problem/' + str(contest_offset + index)
++    problem_id = contest.get('problem_ids', {}).get(problem, contest_offset + index)
++    url = contest_base_url + '/problem/' + str(problem_id)
+     
+     print('Submission information:')
+     print(f'  filename:    {file_name}')

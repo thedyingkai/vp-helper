@@ -1,0 +1,350 @@
+--- upstream/submit
++++ installed/submit
+@@ -1,7 +1,9 @@
+-#!/usr/bin/env python3
++#!/opt/vp-helper/current/venv/bin/python
+ 
+ import sys
+ import os
++import json
++from pathlib import Path
+ import argparse
+ import re
+ from robobrowser import RoboBrowser
+@@ -10,7 +12,6 @@
+ import cf_problems
+ import cf_standings
+ import cf_submit
+-import cf_test
+ import colours
+ 
+ """ print standings """
+@@ -19,10 +20,10 @@
+     browser = cf_login.login()
+     if len(str(contest)) >= 6:
+         """ gym contest """
+-        url = "http://codeforces.com/gym/"+contest+"/standings"
++        url = "https://codeforces.com/gym/"+contest+"/standings"
+     else:
+         """ codeforces round """
+-        url = "http://codeforces.com/contest/"+contest+"/standings"
++        url = "https://codeforces.com/contest/"+contest+"/standings"
+     """ check if friends """
+     if showall is False:
+         url += "/friends/true"
+@@ -35,9 +36,9 @@
+ def print_problems(contest, verbose, sort):
+     browser = cf_login.login()
+     if len(str(contest)) >= 6:
+-        url = "http://codeforces.com/gym/"+contest
+-    else:
+-        url = "http://codeforces.com/contest/"+contest
++        url = "https://codeforces.com/gym/"+contest
++    else:
++        url = "https://codeforces.com/contest/"+contest
+     browser.open(url);
+     if sort is None:
+         sort = "solves"
+@@ -47,9 +48,9 @@
+ def print_time(contest):
+     browser = cf_login.login()
+     if len(str(contest)) >= 6:
+-        url = "http://codeforces.com/gym/"+contest+"/submit"
+-    else:
+-        url = "http://codeforces.com/contest/"+contest+"/submit"
++        url = "https://codeforces.com/gym/"+contest+"/submit"
++    else:
++        url = "https://codeforces.com/contest/"+contest+"/submit"
+     browser.open(url)
+     countdown_timer = browser.parsed.find_all("span", class_="contest-state-regular countdown before-contest-"+contest+"-finish")
+     if len(countdown_timer) == 0:
+@@ -67,6 +68,15 @@
+         contestfile = open(contest_loc, "r")
+         defaultcontest = contestfile.read().rstrip('\n')
+         contestfile.close()
++
++    local_contest = Path('contest.json')
++    if local_contest.is_file():
++        context = json.loads(local_contest.read_text())
++        if context.get('platform') != 'gym':
++            raise SystemExit('This directory is not configured for Gym submissions.')
++        defaultcontest = str(context['contest_id'])
++    if Path(sys.argv[0]).name == 'submit':
++        sys.argv.insert(1, 'submit')
+ 
+     """ ------------------- argparse -------------------- """
+     parser = argparse.ArgumentParser(description="Command line tool to submit to codeforces", formatter_class=argparse.RawTextHelpFormatter)
+@@ -80,7 +90,6 @@
+             "standings -- show standings of friends in default contest, or specify contest with -p\n" +
+             "submit -- submit code to problem\n" +
+             "time -- shows time left in contest\n" +
+-            "test -- tests a problem by running the code on .in and comparing with .ans\n" +
+             "watch -- watch last submission\n" +
+             "coach -- toggle coach mode\n"
+     )
+@@ -241,9 +250,6 @@
+                     args.lang, args.option, args.watch, args.guru
+             )
+ 
+-    elif args.command == "test":
+-        cf_test.test(args.option, args.verbose)
+-
+     else:
+         print("UNKNOWN COMMAND")
+ 
+--- upstream/cf_coach.py
++++ installed/cf_coach.py
+@@ -6,7 +6,7 @@
+ 
+ def coach_mode(coach_on):
+ 	browser = cf_login.login()
+-	browser.open("http://codeforces.com/gyms")
++	browser.open("https://codeforces.com/gyms")
+ 	raw_html = str(browser.parsed)
+ 	if coach_on:
+ 		if raw_html.find("Enable coach mode") != -1:
+--- upstream/cf_login.py
++++ installed/cf_login.py
+@@ -2,97 +2,123 @@
+ import random
+ import getpass
+ from robobrowser import RoboBrowser
++import json
++from pathlib import Path
++from http.cookies import SimpleCookie
++import requests
+ 
+ root = '7'
+ """ converter """
+ def decode(s):
+-	global root
+-	res = ""
+-	length = len(s)
+-	i = 0
+-	while i < length:
+-		rng = ord(s[i])-ord(root)
+-		jump = ord(s[i+1])-ord(root)
+-		temp = 0
+-		for j in range (0, rng):
+-			temp += ord(s[i+j+2]) - ord(root) - jump
+-		res += str(chr(temp))
+-		i += rng + 2
+-	return res
++    global root
++    res = ""
++    length = len(s)
++    i = 0
++    while i < length:
++        rng = ord(s[i])-ord(root)
++        jump = ord(s[i+1])-ord(root)
++        temp = 0
++        for j in range (0, rng):
++            temp += ord(s[i+j+2]) - ord(root) - jump
++        res += str(chr(temp))
++        i += rng + 2
++    return res
+ 
+ def encode(s):
+-	global root
+-	res = ""
+-	length = len(s)
+-	for i in range (0, length):
+-		rng = random.randint(1, 20)
+-		res += str(chr(rng + ord(root)))
+-		jump = random.randint(1,10)
+-		res += str(chr(jump + ord(root)))
+-		curr = ord(s[i])
+-		for j in range (0, rng-1):
+-			temp = random.randint(0, min(curr, 2+int(curr/(rng-j))))
+-			res += str(chr(temp + ord(root) + jump))
+-			curr -= temp
+-		res += str(chr(curr + ord(root) + jump))
+-	return res
++    global root
++    res = ""
++    length = len(s)
++    for i in range (0, length):
++        rng = random.randint(1, 20)
++        res += str(chr(rng + ord(root)))
++        jump = random.randint(1,10)
++        res += str(chr(jump + ord(root)))
++        curr = ord(s[i])
++        for j in range (0, rng-1):
++            temp = random.randint(0, min(curr, 2+int(curr/(rng-j))))
++            res += str(chr(temp + ord(root) + jump))
++            curr -= temp
++        res += str(chr(curr + ord(root) + jump))
++    return res
+ 
+ def get_secret(inclupass):
+-	handle = None
+-	password = None
+-	secret_loc = os.path.join(os.path.dirname(__file__), "secret")
+-	if os.path.isfile(secret_loc):
+-		secretfile = open(secret_loc, "r")
+-		rawdata = secretfile.read().rstrip('\n').split()
+-		handle = decode(rawdata[0])
+-		if inclupass:
+-			password = decode(rawdata[1])
+-		secretfile.close()
+-	if inclupass:
+-		return handle, password
+-	else:
+-		return handle
++    context = Path('contest.json')
++    if context.is_file():
++        account = json.loads(context.read_text())
++        if account.get('platform') == 'gym' and account.get('handle'):
++            return (account['handle'], None) if inclupass else account['handle']
++    handle = None
++    password = None
++    secret_loc = os.path.join(os.path.dirname(__file__), "secret")
++    if os.path.isfile(secret_loc):
++        secretfile = open(secret_loc, "r")
++        rawdata = secretfile.read().rstrip('\n').split()
++        handle = decode(rawdata[0])
++        if inclupass:
++            password = decode(rawdata[1])
++        secretfile.close()
++    if inclupass:
++        return handle, password
++    else:
++        return handle
+ 
+ """ set login """
+ def set_login(handle=None):
+-	if handle is None:
+-		handle = input("Handle: ")
+-	password = getpass.getpass("Password: ")
++    if handle is None:
++        handle = input("Handle: ")
++    password = getpass.getpass("Password: ")
+ 
+-	browser = RoboBrowser(parser = "lxml")
+-	browser.open("http://codeforces.com/enter")
+-	enter_form = browser.get_form("enterForm")
+-	enter_form["handleOrEmail"] = handle
+-	enter_form["password"] = password
+-	browser.submit_form(enter_form)
++    browser = RoboBrowser(parser = "lxml")
++    browser.open("https://codeforces.com/enter")
++    enter_form = browser.get_form("enterForm")
++    enter_form["handleOrEmail"] = handle
++    enter_form["password"] = password
++    browser.submit_form(enter_form)
+ 
+-	checks = list(map(lambda x: x.getText()[1:].strip(),
+-		browser.select("div.caption.titled")))
+-	if handle not in checks:
+-		print("Login Failed.")
+-		return
+-	else:
+-		secret_loc = os.path.join(os.path.dirname(__file__), "secret")
+-		secretfile = open(secret_loc, "w")
+-		secretfile.write(encode(handle) + " " + encode(password))
+-		secretfile.close()
+-		print("Successfully logged in as " + handle)
++    checks = list(map(lambda x: x.getText()[1:].strip(),
++        browser.select("div.caption.titled")))
++    if handle not in checks:
++        print("Login Failed.")
++        return
++    else:
++        secret_loc = os.path.join(os.path.dirname(__file__), "secret")
++        secretfile = open(secret_loc, "w")
++        secretfile.write(encode(handle) + " " + encode(password))
++        secretfile.close()
++        print("Successfully logged in as " + handle)
+ 
+ """ login """
+ def login():
+-	handle, password = get_secret(True)
++    context = Path('contest.json')
++    if context.is_file():
++        account = json.loads(context.read_text())
++        if account.get('platform') == 'gym':
++            session = requests.Session()
++            session.headers['User-Agent'] = account['user_agent']
++            jar = SimpleCookie()
++            jar.load(account['cookie'])
++            for item in jar.values():
++                session.cookies.set(item.key, item.value, domain='codeforces.com', path='/')
++            browser = RoboBrowser(parser='lxml', session=session)
++            browser.open('https://codeforces.com/')
++            logged_in = any(a.get('href', '').lower() == '/profile/' + account['handle'].lower()
++                            for a in browser.select('#header a'))
++            if not logged_in:
++                raise SystemExit('Codeforces login cookie expired or belongs to another account.')
++            return browser
++    handle, password = get_secret(True)
+ 
+-	browser = RoboBrowser(parser = "lxml")
+-	browser.open("http://codeforces.com/enter")
+-	enter_form = browser.get_form("enterForm")
+-	enter_form["handleOrEmail"] = handle
+-	enter_form["password"] = password
+-	browser.submit_form(enter_form)
++    browser = RoboBrowser(parser = "lxml")
++    browser.open("https://codeforces.com/enter")
++    enter_form = browser.get_form("enterForm")
++    enter_form["handleOrEmail"] = handle
++    enter_form["password"] = password
++    browser.submit_form(enter_form)
+ 
+-	checks = list(map(lambda x: x.getText()[1:].strip(), browser.select("div.caption.titled")))
+-	if handle not in checks:
+-		print("Login Corrupted.")
+-		return None
+-	else:
+-		return browser
++    checks = list(map(lambda x: x.getText()[1:].strip(), browser.select("div.caption.titled")))
++    if handle not in checks:
++        print("Login Corrupted.")
++        return None
++    else:
++        return browser
+ 
+--- upstream/cf_submit.py
++++ installed/cf_submit.py
+@@ -7,7 +7,7 @@
+ 
+ """ submissions """
+ def get_submission_data(handle):
+-    req = requests.get("http://codeforces.com/api/user.status?handle={}&from=1&count=1".format(handle))
++    req = requests.get("https://codeforces.com/api/user.status?handle={}&from=1&count=1".format(handle))
+     content = req.content.decode()
+     js = json.loads(content)
+     if "status" not in js or js["status"] != "OK":
+@@ -115,6 +115,15 @@
+     else:
+         print("Unknown Language")
+         return False
++    field = submission["programTypeId"]
++    available = {str(value): str(label) for value, label in zip(field.options, field.labels)}
++    preferred = ("GNU G++20", "GNU G++23", "GNU G++17") if lang == "cpp" else ("PyPy 3", "Python 3") if lang == "py" else ()
++    if langcode not in available or lang == "py":
++        langcode = next((value for prefix in preferred for value, label in available.items()
++                         if label.startswith(prefix)), None)
++    if langcode is None:
++        print("No compatible compiler is offered by this contest")
++        return False
+     submission["programTypeId"] = langcode
+ 
+     # check acmsguru
+@@ -147,12 +156,12 @@
+ 
+     pid = -1
+     if guru:
+-        browser.open("http://codeforces.com/problemsets/acmsguru/submit")
++        browser.open("https://codeforces.com/problemsets/acmsguru/submit")
+         pid = problem
+     elif len(contest) >= 6:
+-        browser.open("http://codeforces.com/gym/" + contest + "/submit/" + problem.upper())
+-    else:
+-        browser.open("http://codeforces.com/contest/" + contest + "/submit/" + problem.upper())
++        browser.open("https://codeforces.com/gym/" + contest + "/submit/" + problem.upper())
++    else:
++        browser.open("https://codeforces.com/contest/" + contest + "/submit/" + problem.upper())
+ 
+     """ show submission """
+     if submit_problem(browser, contest, lang, source, pid) and show:

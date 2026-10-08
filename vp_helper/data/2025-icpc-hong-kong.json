@@ -1,0 +1,708 @@
+{
+  "version": 1,
+  "contest_name": "2025 ICPC Hong Kong Reg",
+  "duration": 18000,
+  "penalty_minutes": 20,
+  "problems": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L"
+  ],
+  "source": "https://raw.githubusercontent.com/xcpcio/board-data/7d626ddad0b98e8f79ddca7072421cee0a9f00e8/data/icpc/50th/hongkong",
+  "teams": [
+    {
+      "id": "A01",
+      "name": "Wuhan University - Thank you Bing Zhang - Shangyuan Liu, Zhenyu Yuan, Yang Hong",
+      "official": true
+    },
+    {
+      "id": "A02",
+      "name": "Guangxi University - Harukanaru Gensokyo - Jianming Zhang, Kang Tao, Yixiang Sun",
+      "official": true
+    },
+    {
+      "id": "A03",
+      "name": "Qilu University Of Technology - add uuz to your qq group meow thank you meow - Zirui Yang, Zhanyuan Guo, Chenwei Zhang",
+      "official": true
+    },
+    {
+      "id": "A04",
+      "name": "Hong Kong Olympiad in Informatics - HKOI 1 - Mak Chun Hin Ivan, Choy Tsz Chai Berton, Lai Hong Tung Honrich",
+      "official": false
+    },
+    {
+      "id": "A05",
+      "name": "Hohai University - ln 7/b - Peiyin Chen, Ran Shao, Weiye Tan",
+      "official": true
+    },
+    {
+      "id": "A06",
+      "name": "Xidian University - Cute Cat Dad - Qi Gao, Siyu Xue, Ziqian Gu",
+      "official": true
+    },
+    {
+      "id": "A07",
+      "name": "Chongqing College of Mobile Communication - Courage - Deli Li, Yihan Zhan, Qing'an Lu",
+      "official": true
+    },
+    {
+      "id": "A08",
+      "name": "Dalian Maritime University - Aleatory Acceptism of Encounter - Pinhao Ren, Yuhan Mei, Junfeng Shi",
+      "official": true
+    },
+    {
+      "id": "A09",
+      "name": "Nanjing University of Posts and Telecommunications - manbo and hajimi - Le'an Hu, Puli Wang, Xiaoliang Tian",
+      "official": true
+    },
+    {
+      "id": "A10",
+      "name": "Hong Kong University of Science and Technology - HKUST1 - Taimas Korganbayev, Mukhammadarif Sakhmoldin, Raiymbek Baishuak",
+      "official": true
+    },
+    {
+      "id": "B01",
+      "name": "Harbin Institute of Technology, Weihai - Be AKed by ICPC - Bowen Li, Yanyu Cui, Jiahao Liu",
+      "official": true
+    },
+    {
+      "id": "B02",
+      "name": "JiangNan University - Taboo Laevatein - Wanli Dong, Hongbo Zhao, Jikai Wu",
+      "official": true
+    },
+    {
+      "id": "B03",
+      "name": "Beihang University - lemonade factory - Hejun Dong, Dayu Wang, Binyang Jiang",
+      "official": true
+    },
+    {
+      "id": "B04",
+      "name": "Pui Ching Middle School - gugugaga - NG Hang Chi, WANG Ziyan, TO Chak Seng",
+      "official": false
+    },
+    {
+      "id": "B05",
+      "name": "The Chinese University of Hong Kong, Shenzhen - Mynoghra - Mofei Zhou, Jianian Chen, Zecheng Wang",
+      "official": true
+    },
+    {
+      "id": "B06",
+      "name": "Shandong University - Icecream! - Yangyang Mao, Shaoqing Liu, Jiahao Hou",
+      "official": true
+    },
+    {
+      "id": "B07",
+      "name": "Beijing University of Technology - robust driver - Zhenyue Chen, Xianglong Qi, Jinhe Zhang",
+      "official": true
+    },
+    {
+      "id": "B08",
+      "name": "Neusoft Institute Guangdong - noircloud - Zihan Zhu, Linfeng Huang, Weitian Huang",
+      "official": true
+    },
+    {
+      "id": "B09",
+      "name": "Renmin University of China - 1+1 - Yihuan Yan, Zijia Fang, Yihao Sun",
+      "official": true
+    },
+    {
+      "id": "B10",
+      "name": "New Mongol Institute of Technology - I-ACE - Amarsaikhan Badamragchaa, Chingunjav Ariuntur, Enkhbaatar Bayarsaikhan",
+      "official": true
+    },
+    {
+      "id": "C01",
+      "name": "University of Electronic Science and Technology of China - UESTC_lyc_fan_club - Zhelin Zhou, Chengyao Zhao, Mingjun Xu",
+      "official": true
+    },
+    {
+      "id": "C02",
+      "name": "Nanjing University - Anohana - Ruimin Zhang, Yukuan Zhu, Zida Chen",
+      "official": true
+    },
+    {
+      "id": "C03",
+      "name": "University of Macau - nxVPCP 'or'1'='1 - LAO UN, Chan U Hun, ZHOU ZI MO",
+      "official": true
+    },
+    {
+      "id": "C04",
+      "name": "Wuhan Institute of Technology - 998244353 - Jiaxin Li, Yaqi Wang, Yangjing Wang",
+      "official": true
+    },
+    {
+      "id": "C05",
+      "name": "National University of Mongolia - NUM-NTN - Naranbat Munkherdene, Tamir Jamiyangarav, Aldarjaw Naranbaatar",
+      "official": true
+    },
+    {
+      "id": "C06",
+      "name": "The Chinese University of Hong Kong - no brain just nom nom nom - Wong Tsz Him, Wong Man Pai Angus, Poonyapat Sriroth",
+      "official": true
+    },
+    {
+      "id": "C07",
+      "name": "Southwest University of Science and Technology - two-thirds - Shilu Liu, Yan Zhong, Han Ke",
+      "official": true
+    },
+    {
+      "id": "C08",
+      "name": "Southwest Jiaotong University - Explosion! - Junhao Liu, Xinke Li, Yida Chen",
+      "official": true
+    },
+    {
+      "id": "C09",
+      "name": "Northeastern University at Qinhuangdao - Don't Hack Me - Yifei Zhu, Xiaoquan Chen, Xingkai Zhao",
+      "official": true
+    },
+    {
+      "id": "C10",
+      "name": "Shanghai Jiao Tong University - Stella Primus - Chongye Yang, Junyi Li, Xingxun Tang",
+      "official": true
+    },
+    {
+      "id": "D01",
+      "name": "SouthWestern University of Finance and Economics - May this voyage culminate in the Final - Sixiang Jiang, Che Liu, Yahui Zhu",
+      "official": true
+    },
+    {
+      "id": "D02",
+      "name": "Dalian University of Technology - Back Seaing - Zixiang Feng, Xizhe Wu, Fangyu Bu",
+      "official": true
+    },
+    {
+      "id": "D03",
+      "name": "The Hong Kong University of Science and Technology (Guangzhou) - Fear WA, all in implementation - Xiangqian Wang, Hao Luo, Wenhao Chu",
+      "official": true
+    },
+    {
+      "id": "D04",
+      "name": "Fuzhou University - Russian Roulette - Jiapeng Huang, Yushi Xiao, Renjie Zhang",
+      "official": true
+    },
+    {
+      "id": "D05",
+      "name": "Hong Kong Baptist University - UU Accelerator - Xujing Zhang, Wuyou Yin, Jiang Meng",
+      "official": true
+    },
+    {
+      "id": "D06",
+      "name": "Zhejiang Gongshang University - Rosmontis_Fan - Shiyuan Shen, Jiahao Wei, Chenyang Xu",
+      "official": true
+    },
+    {
+      "id": "D07",
+      "name": "Chengdu University of Information Technology - One pull one hit - Can Ji, Yile Li, Yuxin Wang",
+      "official": true
+    },
+    {
+      "id": "D08",
+      "name": "Guangzhou University - Hajimi - Xuan Li, Haojun Zhou, Shanghua Yang",
+      "official": true
+    },
+    {
+      "id": "D09",
+      "name": "Shanghai University - SegFault Maigo - Xiahong Liu, Shiyi Zhang, Yanchao Min",
+      "official": true
+    },
+    {
+      "id": "D10",
+      "name": "Tiangong University - Greedy is all about guessing - Yilin Han, Yifan Wu, Shengyuan Yao",
+      "official": true
+    },
+    {
+      "id": "E01",
+      "name": "Hong Kong Olympiad in Informatics - HKOI 3 - Tan Jian Lang, Yang Chun Kit, Wong Cheuk Kiu",
+      "official": false
+    },
+    {
+      "id": "E02",
+      "name": "Shandong University of Technology - Respawn of entropy - Chao Liu, Jun Zhang, Ye Yuan",
+      "official": true
+    },
+    {
+      "id": "E03",
+      "name": "Xiamen University Tan Kah Kee College - Ordinary.exe - Shuo Sun, Zixiang Zhuo, Junhua Huang",
+      "official": true
+    },
+    {
+      "id": "E04",
+      "name": "Sichuan University - Wanting to learn Ai - Chaohang Feng, Xiangyu Cai, Yi Chen",
+      "official": true
+    },
+    {
+      "id": "E05",
+      "name": "Fujian Normal University - Mooncross in Mistweave - Shengmo Ouyang, Dagan Xu, Aoyu Zhou",
+      "official": true
+    },
+    {
+      "id": "E06",
+      "name": "South China Agricultural University - 3 ap = 1band = 1 life? - Weijie Tan, Qianbiao Yan, Gang Chen",
+      "official": true
+    },
+    {
+      "id": "E07",
+      "name": "South China Normal University - All the way south - Haowei Yu, Chenghua Zhu, Xiangkang Zeng",
+      "official": true
+    },
+    {
+      "id": "E08",
+      "name": "Hong Kong Olympiad in Informatics - HKOI 4 - Cheung Kin Sun, Chan Cary Sirui, Lung Ping Him",
+      "official": false
+    },
+    {
+      "id": "E09",
+      "name": "Jinggangshan University - Phoenix - Qiong Wang, Wenyuan Yang, Bowei Chen",
+      "official": true
+    },
+    {
+      "id": "E10",
+      "name": "Harbin Engineering University - go valorant esacpe delta dance - Xinkai Zhao, Jiangji Sun, Liren Yan",
+      "official": true
+    },
+    {
+      "id": "F01",
+      "name": "South China University of Technology - SCUT Chireden - Liyao Zheng, Haolang Yuan, Hongyi Chen",
+      "official": true
+    },
+    {
+      "id": "F02",
+      "name": "City University of Hong Kong - Feel the Russian Style - Gizatullin Timur, Demidov Ilia, Evstafev Andrei",
+      "official": true
+    },
+    {
+      "id": "F03",
+      "name": "Huazhong University of Science and Technology - Aren't Slacking Off - Jize Guo, Lingkai Li, Jiayi Zhao",
+      "official": true
+    },
+    {
+      "id": "F04",
+      "name": "North China University of Science and Technology - No-Panic Doubao Pro - Yanqian Chen, Yuning Chen, Wenzheng Feng",
+      "official": true
+    },
+    {
+      "id": "F05",
+      "name": "National University of Mongolia - N^3 - Dugarjantsan Bilguun, Dalaitseren Ganbold, Bilguun Erkhembayar",
+      "official": true
+    },
+    {
+      "id": "F06",
+      "name": "North University of China - Just AC - Canyang Liu, Jionghao Tan, Wenbo Chen",
+      "official": true
+    },
+    {
+      "id": "F07",
+      "name": "China University of Geosciences, Beijing - Little Foodie Loves Penalty Time - Hongyu Niu, Yuxiang Ye, Junning Teng",
+      "official": true
+    },
+    {
+      "id": "F08",
+      "name": "GuangDong Polytechnic Normal University - GPNU-Awei - Yufan Huang, Weisen Li, Zhengzhu Chen",
+      "official": true
+    },
+    {
+      "id": "F09",
+      "name": "Hong Kong Polytechnic University - Without Sky - Hansong Sun, Xiangyu Meng, Ziqian Lin",
+      "official": true
+    },
+    {
+      "id": "F10",
+      "name": "Zhongshan (Sun Yat-sen) University - SYSU_Fate of Waves - Yuyang He, Liwei Yang, Ruilin Qin",
+      "official": true
+    },
+    {
+      "id": "G01",
+      "name": "Tsinghua University - HFOI2018 - Qingliang Ou, Ruijie He, Yibin Luo",
+      "official": true
+    },
+    {
+      "id": "G02",
+      "name": "Duke Kunshan University - zufang - Zi Hu, Houmin Sun, Tianjun Yuan",
+      "official": true
+    },
+    {
+      "id": "G03",
+      "name": "Central South University of Forestry and Technology - threenoobs - Junjie Xiao, Qizheng Sun, Wenjie He",
+      "official": true
+    },
+    {
+      "id": "G04",
+      "name": "City University of Hong Kong - Pure 2025 - Yachao Yan, Liyou Gao, Zichong Deng",
+      "official": true
+    },
+    {
+      "id": "G05",
+      "name": "Chongqing University of Posts and Telecommunications - Array of Cqupt Monkeys - Yujie Feng, Xinyu Lin, Weijie Wang",
+      "official": true
+    },
+    {
+      "id": "G06",
+      "name": "The University of Hong Kong - Hot Kpop Union - Qixuan Li, Yuchen Wu, Mingfei Xia",
+      "official": true
+    },
+    {
+      "id": "G07",
+      "name": "China University of Petroleum-Beijing at Karamay - Good Luck！ - Yuxian Dong, Boya Liang, Dongsheng Liu",
+      "official": true
+    },
+    {
+      "id": "G08",
+      "name": "Xiamen University of Technology - Nice Nature - Shiwei Hong, Zimo Zhang",
+      "official": true
+    },
+    {
+      "id": "G09",
+      "name": "Harbin Institute of Technology - CQOI Flames - Peijian Du, Zhijian Fang, Junsen Lei",
+      "official": true
+    },
+    {
+      "id": "G10",
+      "name": "Hefei University of Technology at Xuancheng - Naming is so HARD! - Bozhao Feng, Oulu Yu, Jiuhe Ma",
+      "official": true
+    },
+    {
+      "id": "H01",
+      "name": "Tongji University - example pass=AC - Zijian Zheng, Chengwei Zhang, Shuangnan Deng",
+      "official": true
+    },
+    {
+      "id": "H02",
+      "name": "Wuchang Shouyi University - GreedyIsTruth - Longfei Tang, Minghui Li, Jingyun Gao",
+      "official": true
+    },
+    {
+      "id": "H03",
+      "name": "Nanyang Institute of Technology - wawawawa... - Chenxian Song, Jikang Ren, Hanxu Yao",
+      "official": true
+    },
+    {
+      "id": "H04",
+      "name": "Hou Kong Middle School - DengDuck Masters Club - TANG Cheng Hou, HUANG Kam Lam, AO Keng Chio",
+      "official": false
+    },
+    {
+      "id": "H05",
+      "name": "Southern University of Science and Technology - SUSTech-Lyaki - Chuxi Yi, Weikun Pu, Kai'an Chen",
+      "official": true
+    },
+    {
+      "id": "H06",
+      "name": "Zhejiang Normal University - Untitled_Dream - Lin Yang, Rui Shen, Hai Cao",
+      "official": true
+    },
+    {
+      "id": "H07",
+      "name": "Mongolian University of Science and Technology - sict3 - Munkhtur MUNKHBAGANA, Purevdorj TSERENPUNTSAG, Purev-Ochir BILGUUNTUGULDUR",
+      "official": true
+    },
+    {
+      "id": "H08",
+      "name": "Hou Kong Middle School - Universum - CHOI Sai Chi, CHEN Chio Cheong, WONG Chi Pang",
+      "official": false
+    },
+    {
+      "id": "H09",
+      "name": "Guangdong University of Technology - GDUT_darkseek - Yifeng Tan, Wu Cai, Guohua Lai",
+      "official": true
+    },
+    {
+      "id": "H10",
+      "name": "Heilongjiang University - Elite Conscripts - Enpei He, Ziqiang Xin, Quanhong Wei",
+      "official": true
+    },
+    {
+      "id": "I01",
+      "name": "Henan Normal University - Little sheep - Haowen Yan, Tiandian Xie, Keke Yin",
+      "official": true
+    },
+    {
+      "id": "I02",
+      "name": "Sichuan Agricultural University - we are iron - Ya'ao Jiang, Xin Li, Ge Diao",
+      "official": true
+    },
+    {
+      "id": "I03",
+      "name": "Central China Normal University - T34-Gray - Mengqian Liu, Jingxin Yang, Yachen Peng",
+      "official": true
+    },
+    {
+      "id": "I04",
+      "name": "Wuyi University - The Doctor's team and there ape-man captain - Kaixiang Feng, Shengxi Li, Dacong Huang",
+      "official": true
+    },
+    {
+      "id": "I05",
+      "name": "Chengdu University - nia~nia~nia~ciallo~ - Jiyuan Chen, Fansheng Zhang, Bing Huang",
+      "official": true
+    },
+    {
+      "id": "I06",
+      "name": "Jilin University - The Defect - Zhihang Yu, Pengxu Chen, Zibo Xu",
+      "official": true
+    },
+    {
+      "id": "I07",
+      "name": "Shandong University of Science and Technology - SKD 45167 - Te'er Zhang, Xuehui Xu, Jitao Zhu",
+      "official": true
+    },
+    {
+      "id": "I08",
+      "name": "Zhejiang SCI-TECH University - Last Final - Hongyi Chen, Jiahui Tao, Shunyu Wang",
+      "official": true
+    },
+    {
+      "id": "I09",
+      "name": "Shanghai Ocean University - Carrot - Ziheng Zhou, Yuhan Zhou, Tianyou Lv",
+      "official": true
+    },
+    {
+      "id": "I10",
+      "name": "Hong Kong University of Science and Technology - HKUST5 - Chan Ho Yin, AWADALLA, bdelrahman HossamEldin A. A., Vu Duy Tung",
+      "official": true
+    },
+    {
+      "id": "J01",
+      "name": "City University of Hong Kong - Java++3 - Chi Yin Cheung, Chunqiun Tsang, Lap Tsun Chan",
+      "official": false
+    },
+    {
+      "id": "J02",
+      "name": "Anhui Normal University - Haibara Ai is Correct - Jushang Xu, Xiang Gao, Tianbao Huo",
+      "official": true
+    },
+    {
+      "id": "J03",
+      "name": "Shandong University, Weihai - Wenhua Road East - Zhihang Zhang, Yan Tong, Kexu Lu",
+      "official": true
+    },
+    {
+      "id": "J04",
+      "name": "New York University Shanghai - NYU Shanghai Team 2 - Shukai Zhang, Shidong Xu, Yuhang Hou",
+      "official": true
+    },
+    {
+      "id": "J05",
+      "name": "Fudan University - DeepSleep - Shenghao Zhang, Ruizao Wang, Xiangyu Zhu",
+      "official": true
+    },
+    {
+      "id": "J06",
+      "name": "The Chinese University of Hong Kong - Wine-filled Fishball Pie - Hsieh Chong Ho, Wong Chun, Lu Yi Fung",
+      "official": false
+    },
+    {
+      "id": "J07",
+      "name": "Dongguan University of Technology - Team is Powerful - Hai Huang, Tianshuo Lin, Zhilong Lin",
+      "official": true
+    },
+    {
+      "id": "J08",
+      "name": "Hong Kong Olympiad in Informatics - HKOI 2 - Xu Adam, Su Yat Long Rayson, Ho Shun Ngai",
+      "official": false
+    },
+    {
+      "id": "J09",
+      "name": "Wuhan University of Technology - Chuunibyou But ACMers - Jiashang Shi, Xiangyu Yu, Guancheng Lu",
+      "official": true
+    },
+    {
+      "id": "J10",
+      "name": "Shenzhen University - SZU_OvO - Jianfeng Cen, Xinhui Xiong, Nan Zhang",
+      "official": true
+    },
+    {
+      "id": "K01",
+      "name": "Tianjin University - ^v^ - Xiangzhi Zhang, Wenbin Wan, Jiachen Wang",
+      "official": true
+    },
+    {
+      "id": "K02",
+      "name": "Hangzhou Dianzi University - HDU-T05 - Junhao Yang, Zhongtian Xu, Ruicheng Cai",
+      "official": true
+    },
+    {
+      "id": "K03",
+      "name": "Jiangxi Agricultural University - Can't solve it? Nap it away! - Xinyao Huang, Zhengyuan Yu, Haiyu Wang",
+      "official": true
+    },
+    {
+      "id": "K04",
+      "name": "Huizhou University - Genesis in Hong Kong - Jianmin Xian, Hao Sun, Zhijie Zhong",
+      "official": true
+    },
+    {
+      "id": "K05",
+      "name": "Nankai University - The Affiliated High School of Shanxi University - Yuhui Che, Shu Yang, Zhizhong Wang",
+      "official": true
+    },
+    {
+      "id": "K06",
+      "name": "Chengdu Neusoft University - My Little Pony won't use Snickers before meeting Rainbow Dash - Tingxin Wu, Junzhe Wang, Yifu Chen",
+      "official": true
+    },
+    {
+      "id": "K07",
+      "name": "Xiangtan University - Hongkong Uncle - Yue Zhuo, Zixi Li, Qingxin Zeng",
+      "official": true
+    },
+    {
+      "id": "K08",
+      "name": "Peking University - Naive Birds - Weicheng Wang, Jianfeng Zhu, Yichen Li",
+      "official": true
+    },
+    {
+      "id": "K09",
+      "name": "Southwest University - SleepToAC - Ziyi Liu, Baitao Zhou, Junsheng Yang",
+      "official": true
+    },
+    {
+      "id": "K10",
+      "name": "Beijing Normal-Hong Kong Baptist University - Accepted by HKUST - Fangbo Ni, Zefeng Zhao, Menghan Wang",
+      "official": true
+    },
+    {
+      "id": "L01",
+      "name": "Northwestern Polytechnical University - Little Switty - Keqi Li, Jiahao Zou, Taoyu Zhong",
+      "official": true
+    },
+    {
+      "id": "L02",
+      "name": "Nanjing University of Aeronautics and Astronautics - blossom of snow - Haotian Hu, Lekun Zhao, Xianran Kuang",
+      "official": true
+    },
+    {
+      "id": "L03",
+      "name": "Hong Kong Polytechnic University - The Midas Touch - Haochen Shi, Jingbo Huang, Teng Xue",
+      "official": true
+    },
+    {
+      "id": "L04",
+      "name": "Jiangxi University of Finance and Economics - Fondness? Delusion! - Mingchuan Zhong, Junzhe Wan, Yunfei Zhang",
+      "official": true
+    },
+    {
+      "id": "L05",
+      "name": "Southeast University - Twilight - Yanxu Du, Xi Yan, Tianyi Zhou",
+      "official": true
+    },
+    {
+      "id": "L06",
+      "name": "Chengdu Jincheng College - The last dance of XiaoMo - Yiwei Cheng, Lihao Deng, Xuanyi He",
+      "official": true
+    },
+    {
+      "id": "L07",
+      "name": "Xi'an University of Posts and Telecommunications - Dreamer without love - Yu Shi, Yiyuan Wu, Xudong Zhao",
+      "official": true
+    },
+    {
+      "id": "L08",
+      "name": "Guangdong University of Technology Jieyang Campus - ios::sync_with_think(false) - Zhiqian Chen, Jintao Chen, Yang Song",
+      "official": true
+    },
+    {
+      "id": "L09",
+      "name": "Ningbo University of Technology - Zutto Acceptednakade Iinoni. - Jianchun Zheng, Dejian Ye, Nancheng Chen",
+      "official": true
+    },
+    {
+      "id": "L10",
+      "name": "Taizhou University - Long may the sun shine - Ruoyan Wang, Zhichao Zhang, Yicong Yu",
+      "official": true
+    },
+    {
+      "id": "M01",
+      "name": "Hebei University of Technology - Mechanical Wings - Ruohao Wang, Zihan Zhao, Wen Huang",
+      "official": true
+    },
+    {
+      "id": "M02",
+      "name": "Xi'an Jiaotong University - Rinsed to Remote - Ruheng Chen, Jiapeng Yin, Yichen Fang",
+      "official": true
+    },
+    {
+      "id": "M03",
+      "name": "Taiyuan University of Technology - Truly miracle algorithms but no space to write - Xingyu Xu, Sijie Xun, Zhenchen Wang",
+      "official": true
+    },
+    {
+      "id": "M04",
+      "name": "University of Macau - icy_firefly - Miaoyue Gao, Yue Xi, Rongjia Zhang",
+      "official": true
+    },
+    {
+      "id": "M05",
+      "name": "Xihua University - XiXi - Haonan Shi, Lanxuan Wu, Xinyang Liu",
+      "official": true
+    },
+    {
+      "id": "M06",
+      "name": "Jinan University - Byd Fan Club - Zherui Cao, Zhengxin Xie, Chengzhang Pan",
+      "official": true
+    },
+    {
+      "id": "M07",
+      "name": "The University of Hong Kong - Team name ddl today - Mingtian Yang, Jian Luo, Yancheng Liu",
+      "official": true
+    },
+    {
+      "id": "M08",
+      "name": "Shenzhen Technology University - SZTU_developer - Zheng Wang, Jiale Zhang, Rongxin Xu",
+      "official": true
+    },
+    {
+      "id": "M09",
+      "name": "ShanghaiTech University - WA Deeds Done Dirt Cheap - Xinyu Jiang, Zhaokun Chen, Junchi Wang",
+      "official": true
+    },
+    {
+      "id": "M10",
+      "name": "Beijing University of Posts and Telecommunications - GNOSIA - Yixuan Tan, Zhibin Xu, Ruilin Xing",
+      "official": true
+    },
+    {
+      "id": "N01",
+      "name": "Harbin Institute of Technology, Shenzhen - from here - Feiyu Zhao, Yanbo Chen, Yixuan Cai",
+      "official": true
+    },
+    {
+      "id": "N02",
+      "name": "Kunming University of Science and Technology - I All Accepted - Haotian Liu, Kang Li, Yuxiang Lu",
+      "official": true
+    },
+    {
+      "id": "N03",
+      "name": "Pui Ching Middle School - gagagugu - WONG In Son, CHEONG Sio Fong, LIN Yu Feng",
+      "official": false
+    },
+    {
+      "id": "N04",
+      "name": "City University of Macau - SILVER MINER PRO - Muhan Hao, Mingxu Zhu, Fangyuan Jian",
+      "official": true
+    },
+    {
+      "id": "N05",
+      "name": "Yangtze University - Dawn - Fangjia Ji, Yan Tong, Wen Ren",
+      "official": true
+    },
+    {
+      "id": "N06",
+      "name": "Hong Kong Baptist University - HKBU_2 - Timur Ten, Feiyi Fang, Jiafu Guo",
+      "official": true
+    }
+  ],
+  "medals": {
+    "gold": 13,
+    "silver": 26,
+    "bronze": 39
+  }
+}

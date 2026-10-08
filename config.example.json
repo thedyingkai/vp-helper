@@ -1,0 +1,16 @@
+{
+  "qoj": {
+    "handle": "",
+    "cookie": "",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64)",
+    "submit_script": "/usr/local/bin/submit"
+  },
+  "gym": {
+    "handle": "",
+    "cookie": "",
+    "api_key": "",
+    "api_secret": "",
+    "submit_script": "/usr/local/bin/submit",
+    "cf_submit_directory": ""
+  }
+}

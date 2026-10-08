@@ -1,0 +1,29 @@
+{
+  "project": "https://github.com/ehnryx/cf_submit",
+  "revision": "0c55ff7c91de854c371a1c8f329d9f3f3669328e",
+  "license": "GPL-3.0",
+  "original_sha256": {
+    "cf.py": "c689e24549518affc865335865864fda771f0fd450056ebcfacbb8d975c5708f",
+    "cf_coach.py": "f1a651aa7da7b9a13e0684af020fa036f4427f473409b76ada8c246af7a522fb",
+    "cf_login.py": "023087d85f011703ee4a70b996c824c4310b1411ab26e310a5cd97c0e55c3b95",
+    "cf_problems.py": "e42694cf58b847d3c195615b9847238ccd53e1dd962d0c861d3b33c4535cbe81",
+    "cf_standings.py": "9787217875aaddbcc508727fe2c0eb980b590ffa8c26954c65d5bf57c55f4c93",
+    "cf_submit.py": "b2460f1328402e87c224f329e53c252f42c1102f3fb14c6899ef96c55ad43cd3",
+    "cf_test.py": "d1cfb49f2ed4a4d5b73d3c77dc97044710c443ac05c027d7450e890d8a60a8b1",
+    "colours.py": "6d3b94b38eb635841a4b164c2308936e08e9a0fadc0908198cb4748cec89bac7",
+    "LICENSE": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2",
+    "README.md": "71c52767bd615771fcdc3a8611fcf24d623142b479557a8213e5b8b50ff3e613"
+  },
+  "changes": [
+    "Standalone submit entry",
+    "Per-directory Gym contest and existing login cookie",
+    "HTTPS URLs",
+    "Compiler choices from platform form",
+    "Removed upstream local problem-testing helper and its CLI command",
+    "Bundled README describes the installed submit entry",
+    "Normalized trailing whitespace without changing program behavior"
+  ],
+  "excluded_files": [
+    "cf_test.py"
+  ]
+}

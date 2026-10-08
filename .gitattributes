@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.whl binary
+*.tar.gz binary
+*.patch -whitespace

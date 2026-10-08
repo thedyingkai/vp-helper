@@ -1,0 +1,126 @@
+#!/opt/vp-helper/current/venv/bin/python
+'''
+Requirements for contest.json
+
+{
+    "name": "Contest name"
+    "base_url": "https://qoj.ac/contest/",
+    "problems": "ABCDEFGHIJKLM",
+    "offset": 9405,
+    "user_agent": "User Agent",
+    "cookie": "UOJSESSID=Your QOJ SESSID"
+}
+'''
+
+import sys
+import json
+import requests
+from pathlib import Path
+from selectolax.lexbor import LexborHTMLParser
+
+LANG_MAPPING = {
+    '.cpp': 'C++20',
+    '.cc': 'C++20',
+    '.py': 'PyPy3',
+}
+
+if len(sys.argv) == 2 and sys.argv[1] in ('-h', '--help'):
+    print('Usage: submit code.cpp [-y]')
+    sys.exit(0)
+
+with open('contest.json', 'r') as f:
+    contest = json.load(f)
+
+contest_name: str = contest['name']
+contest_base_url: str = contest['base_url']
+contest_problems: str = contest['problems']
+contest_offset: int = contest['offset']
+user_agent: str = contest['user_agent']
+cookie: str = contest['cookie']
+
+def submit(url: str, lang: str, code: str) -> None:
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': user_agent,
+        'Cookie': cookie,
+    })
+    response = session.get(url)
+
+    parser = LexborHTMLParser(response.text)
+    token_node = parser.css_first('input[name="_token"]')
+    dynamic_token = ''
+
+    if token_node:
+        dynamic_token = token_node.attributes.get('value', '')
+
+    if not dynamic_token:
+        raise RuntimeError('Failed to get token')
+
+
+    payload_files = {
+        '_token': (None, dynamic_token),
+        'answer_answer_language': (None, lang),
+        'answer_answer_upload_type': (None, 'editor'),
+        'answer_answer_editor': (None, code),
+        'answer_answer_file': ('', b'', 'application/octet-stream'),
+        'submit-answer': (None, 'answer')
+    }
+
+    submit_response = session.post(url, files=payload_files)
+
+    if submit_response.status_code == 200:
+        print('Submission succeeded.')
+        print(f'Check {contest_base_url}/submissions for the result.')
+    else:
+        print('Submission failed.')
+        print('Status code', submit_response.status_code)
+
+
+def confirm(message: str) -> bool:
+    answer = ''
+    while answer not in ['y', 'n']:
+        answer = input(f'{message} (y/n) ').lower()
+    return answer == 'y'
+
+
+if __name__ == '__main__':
+    if len(sys.argv) not in [2, 3]:
+        print('Usage: submit code.cpp [-y]')
+        sys.exit(-1)
+
+    file_name = sys.argv[1]
+    yes_by_default = False
+    if len(sys.argv) == 3 and sys.argv[-1] == '-y':
+        yes_by_default = True
+
+    code_path = Path(file_name)
+    if not code_path.exists():
+        print(f'Error: {file_name} does not exist')
+        sys.exit(-1)
+
+    if code_path.suffix not in LANG_MAPPING:
+        print(f'Error: unknown suffix {code_path.suffix}')
+        sys.exit(-1)
+
+    lang = LANG_MAPPING[code_path.suffix]
+    problem = code_path.stem[0].capitalize()
+    index = contest_problems.find(problem)
+    if index == -1:
+        print(f'Error: cannot find problem {problem}')
+        sys.exit(-1)
+
+    problem_id = contest.get('problem_ids', {}).get(problem, contest_offset + index)
+    url = contest_base_url + '/problem/' + str(problem_id)
+
+    print('Submission information:')
+    print(f'  filename:    {file_name}')
+    print(f'  contest:     {contest_name}')
+    print(f'  problem:     {problem}')
+    print(f'  language:    {lang}')
+    print(f'  url:         {url}')
+
+    if yes_by_default or confirm('Do you want to continue?'):
+        code = code_path.read_text('utf8')
+        submit(url, lang, code)
+    else:
+        print('Aborted.')

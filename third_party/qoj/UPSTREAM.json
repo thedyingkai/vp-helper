@@ -1,0 +1,9 @@
+{
+  "project": "https://gist.github.com/hikariyo/b3cec2e736d87be57d1e4faafb04f908",
+  "revision": "966f5bbf66ac46943f40564807cb15a08ad012ef",
+  "original_sha256": "5e93d3720ef21485a2bdae4125d66015a56e2fef1b027b34bd38bbcea6c9b490",
+  "changes": [
+    "Fixed interpreter path and help before configuration",
+    "Optional explicit problem ID mapping"
+  ]
+}
