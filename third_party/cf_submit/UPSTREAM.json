@@ -22,7 +22,8 @@
     "Removed upstream local problem-testing helper and its CLI command",
     "Bundled README describes the installed submit entry",
     "Normalized trailing whitespace without changing program behavior",
-    "Server-confirmed submission IDs and immediate pending notifications to the VP monitor"
+    "Server-confirmed submission IDs and immediate pending notifications to the VP monitor",
+    "Pass Cloudflare by driving RoboBrowser with a curl_cffi session and catching both transports' request errors"
   ],
   "excluded_files": [
     "cf_test.py"

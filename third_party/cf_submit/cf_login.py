@@ -7,6 +7,30 @@ from pathlib import Path
 from http.cookies import SimpleCookie
 import requests
 
+# codeforces.com sits behind Cloudflare, which fingerprints the TLS handshake:
+# a plain requests session is answered with "HTTP 403 / Just a moment...".
+# curl_cffi reproduces a real browser's TLS and HTTP/2 fingerprint.  RoboBrowser
+# accepts a replacement session because it only calls session.request/get/post
+# and reads session.cookies.
+try:
+    from curl_cffi import requests as _requests
+
+    _IMPERSONATE = 'firefox147'
+except ImportError:  # pragma: no cover - curl_cffi not installed
+    _requests = requests
+
+    _IMPERSONATE = None
+
+
+def make_session(user_agent=None):
+    """A browser session that can pass Cloudflare."""
+    if _IMPERSONATE:
+        return _requests.Session(impersonate=_IMPERSONATE)
+    session = _requests.Session()
+    if user_agent:
+        session.headers['User-Agent'] = user_agent
+    return session
+
 root = '7'
 """ converter """
 def decode(s):
@@ -68,7 +92,7 @@ def set_login(handle=None):
         handle = input("Handle: ")
     password = getpass.getpass("Password: ")
 
-    browser = RoboBrowser(parser = "lxml")
+    browser = RoboBrowser(parser = "lxml", session = make_session())
     browser.open("https://codeforces.com/enter")
     enter_form = browser.get_form("enterForm")
     enter_form["handleOrEmail"] = handle
@@ -93,8 +117,7 @@ def login():
     if context.is_file():
         account = json.loads(context.read_text())
         if account.get('platform') == 'gym':
-            session = requests.Session()
-            session.headers['User-Agent'] = account['user_agent']
+            session = make_session(account['user_agent'])
             jar = SimpleCookie()
             jar.load(account['cookie'])
             for item in jar.values():
@@ -108,7 +131,7 @@ def login():
             return browser
     handle, password = get_secret(True)
 
-    browser = RoboBrowser(parser = "lxml")
+    browser = RoboBrowser(parser = "lxml", session = make_session())
     browser.open("https://codeforces.com/enter")
     enter_form = browser.get_form("enterForm")
     enter_form["handleOrEmail"] = handle

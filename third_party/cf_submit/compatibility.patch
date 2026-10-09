@@ -105,7 +105,7 @@
  		if raw_html.find("Enable coach mode") != -1:
 --- upstream/cf_login.py
 +++ installed/cf_login.py
-@@ -2,97 +2,122 @@
+@@ -2,97 +2,145 @@
  import random
  import getpass
  from robobrowser import RoboBrowser
@@ -113,6 +113,30 @@
 +from pathlib import Path
 +from http.cookies import SimpleCookie
 +import requests
++
++# codeforces.com sits behind Cloudflare, which fingerprints the TLS handshake:
++# a plain requests session is answered with "HTTP 403 / Just a moment...".
++# curl_cffi reproduces a real browser's TLS and HTTP/2 fingerprint.  RoboBrowser
++# accepts a replacement session because it only calls session.request/get/post
++# and reads session.cookies.
++try:
++    from curl_cffi import requests as _requests
++
++    _IMPERSONATE = 'firefox147'
++except ImportError:  # pragma: no cover - curl_cffi not installed
++    _requests = requests
++
++    _IMPERSONATE = None
++
++
++def make_session(user_agent=None):
++    """A browser session that can pass Cloudflare."""
++    if _IMPERSONATE:
++        return _requests.Session(impersonate=_IMPERSONATE)
++    session = _requests.Session()
++    if user_agent:
++        session.headers['User-Agent'] = user_agent
++    return session
  
  root = '7'
  """ converter """
@@ -226,7 +250,7 @@
 -	enter_form["handleOrEmail"] = handle
 -	enter_form["password"] = password
 -	browser.submit_form(enter_form)
-+    browser = RoboBrowser(parser = "lxml")
++    browser = RoboBrowser(parser = "lxml", session = make_session())
 +    browser.open("https://codeforces.com/enter")
 +    enter_form = browser.get_form("enterForm")
 +    enter_form["handleOrEmail"] = handle
@@ -263,8 +287,7 @@
 +    if context.is_file():
 +        account = json.loads(context.read_text())
 +        if account.get('platform') == 'gym':
-+            session = requests.Session()
-+            session.headers['User-Agent'] = account['user_agent']
++            session = make_session(account['user_agent'])
 +            jar = SimpleCookie()
 +            jar.load(account['cookie'])
 +            for item in jar.values():
@@ -284,7 +307,7 @@
 -	enter_form["handleOrEmail"] = handle
 -	enter_form["password"] = password
 -	browser.submit_form(enter_form)
-+    browser = RoboBrowser(parser = "lxml")
++    browser = RoboBrowser(parser = "lxml", session = make_session())
 +    browser.open("https://codeforces.com/enter")
 +    enter_form = browser.get_form("enterForm")
 +    enter_form["handleOrEmail"] = handle
@@ -397,7 +420,21 @@
 -
 --- upstream/cf_submit.py
 +++ installed/cf_submit.py
-@@ -7,7 +7,7 @@
+@@ -3,11 +3,21 @@
+ import json
+ import re
+ import requests
++
++# cf_login.make_session may hand RoboBrowser a curl_cffi session instead of a
++# requests one, so the session's own exception type must be caught too.
++try:
++    from curl_cffi.requests.errors import RequestsError as _CurlCffiError
++except ImportError:  # pragma: no cover - curl_cffi not installed
++    _CurlCffiError = requests.RequestException
++
++_SESSION_ERRORS = (requests.RequestException, _CurlCffiError)
++
+ import colours
  
  """ submissions """
  def get_submission_data(handle):
@@ -406,7 +443,7 @@
      content = req.content.decode()
      js = json.loads(content)
      if "status" not in js or js["status"] != "OK":
-@@ -115,6 +115,15 @@
+@@ -115,6 +125,15 @@
      else:
          print("Unknown Language")
          return False
@@ -422,7 +459,7 @@
      submission["programTypeId"] = langcode
  
      # check acmsguru
-@@ -140,6 +149,19 @@
+@@ -140,6 +159,19 @@
  
  """ submit problem """
  def submit(browser, handle, contest, problem, lang, source, show, guru):
@@ -437,12 +474,12 @@
 +            response = browser.session.get('https://codeforces.com/' + prefix + '/' + contest + '/my', timeout=(10, 40))
 +            if response.status_code == 200 and response.url.split('?')[0].endswith('/' + contest + '/my'):
 +                previous = cf_submission_ids(response.text)
-+        except requests.RequestException:
++        except _SESSION_ERRORS:
 +            pass
      if guru:
          print("Submitting to acmsguru " + problem + " as " + handle)
      else:
-@@ -147,16 +169,28 @@
+@@ -147,16 +179,28 @@
  
      pid = -1
      if guru:
@@ -477,7 +514,7 @@
  
  """ submit, possibly len(args) > 1 """
  def submit_files(browser, defaulthandle, defaultcontest, defaultprob, defext, defaultlang, args, show, guru):
-@@ -217,4 +251,3 @@
+@@ -217,4 +261,3 @@
  
          else:
              print("cannot parse filename, specify problem with -p or --prob")
