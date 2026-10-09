@@ -23,7 +23,7 @@ try:
         from curl_cffi.requests.errors import RequestsError as _RequestException
     except Exception:
         _RequestException = Exception
-    _IMPERSONATE = 'firefox'
+    _IMPERSONATE = 'firefox147'
 except ImportError:
     import requests
 
@@ -56,6 +56,35 @@ contest_problems: str = contest['problems']
 contest_offset: int = contest['offset']
 user_agent: str = contest['user_agent']
 cookie: str = contest['cookie']
+
+def post_form(session, url, fields):
+    """POST a multipart form body.
+
+    requests accepts the files= mapping below, but curl_cffi rejects it outright
+    ("files is not supported, use `multipart`") and wants a CurlMime instead.
+    The two spellings produce the same multipart body, so the form fields and
+    their values are shared.
+    """
+    if _IMPERSONATE:
+        from curl_cffi import CurlMime
+
+        mime = CurlMime()
+        for name, spec in fields.items():
+            content = spec[1]
+            if not isinstance(content, bytes):
+                content = str(content).encode()
+            if len(spec) == 3:
+                # (filename, content, content_type) -- the empty "file" part.
+                # filename is passed through as-is: requests emits filename=""
+                # for an empty name and curl_cffi must do the same, so an empty
+                # string must not be collapsed to None.
+                mime.addpart(name=name, data=content,
+                             filename=spec[0], content_type=spec[2])
+            else:
+                mime.addpart(name=name, data=content)
+        return session.post(url, multipart=mime, allow_redirects=False, timeout=(10, 40))
+    return session.post(url, files=fields, allow_redirects=False, timeout=(10, 40))
+
 
 def submit(url: str, lang: str, code: str, problem: str) -> None:
     if _IMPERSONATE:
@@ -104,7 +133,7 @@ def submit(url: str, lang: str, code: str, problem: str) -> None:
 
     submitted_at = time.time()
     try:
-        submit_response = session.post(url, files=payload_files, allow_redirects=False, timeout=(10, 40))
+        submit_response = post_form(session, url, payload_files)
     except _RequestException:
         raise SystemExit('Server confirmation unavailable. Check the submissions page before retrying.') from None
     origin = 'https://' + urlsplit(contest_base_url).netloc
