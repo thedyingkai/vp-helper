@@ -22,10 +22,74 @@ except ImportError:  # pragma: no cover - curl_cffi not installed
     _IMPERSONATE = None
 
 
+def _mime_from(data, files):
+    """Express requests' data=/files= pair as a curl_cffi CurlMime.
+
+    RoboBrowser serializes <input type="file"> fields into files= -- its
+    FileInput.payload_key is 'files' -- and requests accepts (name, file object)
+    pairs there.  curl_cffi has no equivalent, so those parts have to be read and
+    rebuilt as CurlMime parts.
+    """
+    from curl_cffi import CurlMime
+
+    mime = CurlMime()
+    for name, value in (data or []):
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else ''
+        mime.addpart(name=name,
+                     data=value if isinstance(value, bytes) else str(value).encode())
+    for name, item in (files or []):
+        filename = content_type = None
+        if isinstance(item, (list, tuple)):
+            if len(item) >= 3:
+                filename, body, content_type = item[0], item[1], item[2]
+            elif len(item) == 2:
+                filename, body = item
+            else:
+                body = item[0]
+        else:
+            body = item
+        if hasattr(body, 'read'):
+            if not filename:
+                filename = os.path.basename(getattr(body, 'name', '') or '') or None
+            try:
+                body.seek(0)
+            except (OSError, ValueError):
+                pass
+            payload = body.read()
+        else:
+            payload = body
+        if isinstance(payload, str):
+            payload = payload.encode()
+        if filename is None and content_type is None:
+            mime.addpart(name=name, data=payload)
+        else:
+            # requests sends no Content-Type for a file object handed to it
+            # without an explicit type, so this must not invent one either.
+            mime.addpart(name=name, data=payload, filename=filename, content_type=content_type)
+    return mime
+
+
+if _IMPERSONATE:
+    class _FormSession(_requests.Session):
+        """A curl_cffi session that also understands requests' files= spelling.
+
+        RoboBrowser builds file inputs as files=, which curl_cffi rejects with
+        "files is not supported, use `multipart`".  Without this translation the
+        Codeforces source upload never leaves the client.
+        """
+
+        def request(self, method, url, *args, **kwargs):
+            files = kwargs.pop('files', None)
+            if files:
+                kwargs['multipart'] = _mime_from(kwargs.pop('data', None), files)
+            return super().request(method, url, *args, **kwargs)
+
+
 def make_session(user_agent=None):
-    """A browser session that can pass Cloudflare."""
+    """A browser session that can pass Cloudflare and accept RoboBrowser's forms."""
     if _IMPERSONATE:
-        return _requests.Session(impersonate=_IMPERSONATE)
+        return _FormSession(impersonate=_IMPERSONATE)
     session = _requests.Session()
     if user_agent:
         session.headers['User-Agent'] = user_agent

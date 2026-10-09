@@ -23,7 +23,7 @@
     "Bundled README describes the installed submit entry",
     "Normalized trailing whitespace without changing program behavior",
     "Server-confirmed submission IDs and immediate pending notifications to the VP monitor",
-    "Pass Cloudflare by driving RoboBrowser with a curl_cffi session and catching both transports' request errors"
+    "Translate RoboBrowser's files= upload payload into a CurlMime so the Codeforces source upload works on the curl_cffi session"
   ],
   "excluded_files": [
     "cf_test.py"
