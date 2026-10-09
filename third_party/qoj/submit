@@ -14,7 +14,22 @@ Requirements for contest.json
 
 import sys
 import json
-import requests
+try:
+    # qoj.ac sits behind Cloudflare, which fingerprints the TLS handshake;
+    # plain requests/urllib3 is rejected with "HTTP 403 / Just a moment...".
+    from curl_cffi import requests
+
+    try:
+        from curl_cffi.requests.errors import RequestsError as _RequestException
+    except Exception:
+        _RequestException = Exception
+    _IMPERSONATE = 'firefox'
+except ImportError:
+    import requests
+
+    _RequestException = requests.RequestException
+    _IMPERSONATE = None
+
 import time
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -43,11 +58,18 @@ user_agent: str = contest['user_agent']
 cookie: str = contest['cookie']
 
 def submit(url: str, lang: str, code: str, problem: str) -> None:
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': user_agent,
-        'Cookie': cookie,
-    })
+    if _IMPERSONATE:
+        # curl_cffi bundles libcurl-impersonate and supplies browser headers
+        # matching its TLS fingerprint; overriding the User-Agent would break
+        # that disguise, so only the cookie is set here.
+        session = requests.Session(impersonate=_IMPERSONATE)
+        session.headers.update({'Cookie': cookie})
+    else:
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': user_agent,
+            'Cookie': cookie,
+        })
     response = session.get(url, timeout=(10, 40))
     response.raise_for_status()
 
@@ -83,7 +105,7 @@ def submit(url: str, lang: str, code: str, problem: str) -> None:
     submitted_at = time.time()
     try:
         submit_response = session.post(url, files=payload_files, allow_redirects=False, timeout=(10, 40))
-    except requests.RequestException:
+    except _RequestException:
         raise SystemExit('Server confirmation unavailable. Check the submissions page before retrying.') from None
     origin = 'https://' + urlsplit(contest_base_url).netloc
     sid = qoj_submission_id(submit_response, origin)
