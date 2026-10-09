@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.cookies import SimpleCookie
 from pathlib import Path
+import time
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
@@ -20,18 +21,32 @@ from .models import VPError
 # HTTP/2 fingerprint, which passes the check.  When curl_cffi is unavailable the
 # original requests behaviour is kept, so the tool still degrades gracefully.
 # ---------------------------------------------------------------------------
-_IMPERSONATE = "firefox"
+_IMPERSONATE = "firefox147"
 
-# curl_cffi keeps the impersonation's headers (User-Agent included) inside the
-# browser profile rather than in session.headers.  cli.py and qoj.py, however,
-# read session.headers["User-Agent"] as metadata for the submit script, so the
-# key has to exist.  It is pinned to exactly the string the profile sends, which
-# leaves the request on the wire byte-for-byte identical.  Bump this if the
-# profile in a future curl_cffi impersonates a different Firefox build.
+# "firefox" is a version-dependent alias: curl_cffi 0.11 resolves it to Firefox
+# 135 while 0.16 resolves it to Firefox 147.  Pairing that alias with a
+# hardcoded User-Agent would send a 147 header over a 135 fingerprint whenever an
+# older curl_cffi is installed.  Naming the profile explicitly keeps the two in
+# step; pyproject.toml requires a curl_cffi new enough to know this profile.
+#
+# curl_cffi keeps the profile's headers (User-Agent included) to itself rather
+# than in session.headers, but cli.py and qoj.py read session.headers
+# ["User-Agent"] as metadata for the submit script, so the key has to exist.  It
+# holds exactly the string this profile sends, which leaves the request on the
+# wire byte-for-byte identical.
 _IMPERSONATED_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) "
     "Gecko/20100101 Firefox/147.0"
 )
+
+# Bounded retry for GETs, mirroring the urllib3 policy this transport replaced:
+# two retries with a 1s/2s backoff on transient statuses and on connection
+# errors.  curl_cffi's own retry= only covers transport errors, not status
+# codes, so the loop below covers both transports.  POSTs are never retried --
+# starting a native VP must not be repeated behind the user's back.
+_RETRY_TOTAL = 2
+_RETRY_STATUS = frozenset({429, 502, 503, 504})
+_RETRY_BACKOFF = 1.0
 
 try:
     from curl_cffi import requests as _requests
@@ -73,11 +88,22 @@ class WebSession:
                 self.session.cookies.set(key, value.value)
 
     def get(self, url: str, **kwargs) -> object:
-        try:
-            r = self.session.get(url, timeout=(10, 40), **kwargs)
-        except _RequestException as exc:
-            raise VPError(f"Connection failed: {urlsplit(url).hostname} ({type(exc).__name__})") from None
-        return self.check(r)
+        host = urlsplit(url).hostname
+        for attempt in range(_RETRY_TOTAL + 1):
+            if attempt:
+                # 1s then 2s -- the backoff the replaced urllib3 Retry used.
+                time.sleep(_RETRY_BACKOFF * 2 ** (attempt - 1))
+            try:
+                r = self.session.get(url, timeout=(10, 40), **kwargs)
+            except _RequestException as exc:
+                if attempt == _RETRY_TOTAL:
+                    raise VPError(f"Connection failed: {host} ({type(exc).__name__})") from None
+                continue
+            if r.status_code in _RETRY_STATUS and attempt < _RETRY_TOTAL:
+                continue
+            return self.check(r)
+        # The final iteration always returns or raises; this keeps the flow total.
+        raise VPError(f"Connection failed: {host}")  # pragma: no cover
 
     def post(self, url: str, data: dict):
         try:
