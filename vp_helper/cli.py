@@ -128,12 +128,18 @@ def launch(state_path: Path, state: dict) -> None:
     name = state["tmux_session"]
     directory = state["directory"]
     monitor = shlex.join([sys.executable, "-m", "vp_helper.cli", "_monitor", str(state_path)])
-    subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", directory, monitor], check=True)
+    # A percentage split (-p) cannot be resolved on a session that has no client
+    # yet: tmux aborts with "size missing".  Give the session the real terminal
+    # geometry and split by an absolute number of lines instead.
+    columns, rows = shutil.get_terminal_size(fallback=(80, 24))
+    shell_rows = max(4, rows * 3 // 10)
+    subprocess.run(["tmux", "new-session", "-d", "-s", name,
+                    "-x", str(columns), "-y", str(rows), "-c", directory, monitor], check=True)
     try:
         subprocess.run(["tmux", "set-option", "-t", name, "remain-on-exit", "on"], check=True)
         subprocess.run(["tmux", "set-option", "-t", name, "mouse", "on"], check=True)
         shell = os.environ.get("SHELL", "/bin/bash")
-        subprocess.run(["tmux", "split-window", "-v", "-p", "30", "-t", name,
+        subprocess.run(["tmux", "split-window", "-v", "-l", str(shell_rows), "-t", name,
                         "-c", directory, "exec " + shlex.quote(shell)], check=True)
         subprocess.run(["tmux", "select-pane", "-t", name + ":0.1"], check=True)
     except subprocess.CalledProcessError:

@@ -3,6 +3,16 @@ import time
 import json
 import re
 import requests
+
+# cf_login.make_session may hand RoboBrowser a curl_cffi session instead of a
+# requests one, so the session's own exception type must be caught too.
+try:
+    from curl_cffi.requests.errors import RequestsError as _CurlCffiError
+except ImportError:  # pragma: no cover - curl_cffi not installed
+    _CurlCffiError = requests.RequestException
+
+_SESSION_ERRORS = (requests.RequestException, _CurlCffiError)
+
 import colours
 
 """ submissions """
@@ -160,7 +170,7 @@ def submit(browser, handle, contest, problem, lang, source, show, guru):
             response = browser.session.get('https://codeforces.com/' + prefix + '/' + contest + '/my', timeout=(10, 40))
             if response.status_code == 200 and response.url.split('?')[0].endswith('/' + contest + '/my'):
                 previous = cf_submission_ids(response.text)
-        except requests.RequestException:
+        except _SESSION_ERRORS:
             pass
     if guru:
         print("Submitting to acmsguru " + problem + " as " + handle)
