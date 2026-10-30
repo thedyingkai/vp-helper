@@ -44,13 +44,19 @@ def load_account(platform: str) -> dict:
     key = "gym" if platform == "cf" and "cf" not in config else platform
     account = config.setdefault(key, {})
     before = dict(account)
-    refresh_browser_account(platform, account)
+    diagnostics: list[str] = []
+    refresh_browser_account(platform, account, diagnostics=diagnostics)
     if account != before:
         write_json(path, config)
     if not account.get("cookie") and account.get("cookie_source") != "manual":
         site = "QOJ" if platform == "qoj" else "Codeforces"
-        raise VPError(f"No matching Firefox login was found for {site}. "
-                      "Log in to the site in Firefox, then run the same vp command again.")
+        details = "\n".join("  - " + reason for reason in dict.fromkeys(diagnostics))
+        message = f"Could not import a verified Firefox login for {site}."
+        if details:
+            message += "\n" + details
+        raise VPError(message + "\nUse the Firefox profile where you are logged in. "
+                      f"If it is outside the detected directories, set {key}.firefox_profile in {path} "
+                      "to the Profile Directory shown at about:support, then run the same vp command again.")
     required = ("handle", "cookie") if platform == "qoj" else ("handle", "cookie", "api_key", "api_secret")
     missing = [key for key in required if not account.get(key)]
     if missing and not sys.stdin.isatty():

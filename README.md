@@ -2,7 +2,7 @@
 
 Ubuntu 上的 XCPC 虚拟参赛终端助手，支持 QOJ、Codeforces ICPC 比赛和 Codeforces Gym。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
 
-当前版本：0.1.15。
+当前版本：0.1.16。
 
 ## 安装
 
@@ -15,6 +15,15 @@ bash install.sh
 ```
 
 安装后可在任意目录使用 `vp` 和 `submit`。Python 运行时与依赖可从仓库离线安装；系统未安装 tmux 时，安装器通过 apt 安装 tmux。
+
+更新 Git 克隆的仓库后，重新运行安装器：
+
+```bash
+git pull --ff-only
+bash install.sh
+```
+
+使用 ZIP 安装时，重新下载并解压最新版，在新目录内运行 `bash install.sh`。全局 `vp` 使用 `/opt/vp-helper/current` 中的安装副本，只更新源码目录不会更新已安装的命令。
 
 ## 使用
 
@@ -38,9 +47,11 @@ vp history
 
 先在 Ubuntu 的 Firefox 登录 QOJ 或 Codeforces，再运行比赛命令。`vp` 和内置 `submit` 自动读取 Firefox 的登录状态，并通过网站导航中的登录用户核对账号；未填写 handle 时也可以从已验证的浏览器登录自动取得。Codeforces / Gym 的 API key 与 API secret 仍在首次使用时配置。配置保存在 `~/.config/vp/config.json`，权限为 600；也可以参考 `config.example.json` 填写。`cf` 与 `gym` 默认共用 Codeforces 配置。
 
-自动读取支持 Firefox 的普通安装及 Ubuntu Snap 目录，读取该网站的持久 Cookie 和最新会话恢复记录；其他网站及容器、隐私会话不参与导入。程序只读取浏览器文件。验证通过后将登录数据保存到本地配置，账号不匹配或网络验证失败时保留原配置。GET 遇到登录过期会重新读取并验证一次；启动 VP 和提交代码的 POST 不自动重发。Firefox 尚未保存新会话时稍候再运行命令，或登录时勾选“记住我”。
+自动读取支持 Firefox 的旧目录 `~/.mozilla/firefox`、XDG 目录（默认 `~/.config/mozilla/firefox`，也支持自定义 `XDG_CONFIG_HOME`）、Ubuntu Snap 和 Flatpak 目录，读取该网站的持久 Cookie 和最新会话恢复记录；其他网站及容器、隐私会话不参与导入。程序只读取浏览器文件。验证通过后将登录数据保存到本地配置，账号不匹配或网络验证失败时保留原配置。GET 遇到登录过期会重新读取并验证一次；启动 VP 和提交代码的 POST 不自动重发。Firefox 尚未保存新会话时稍候再运行命令，或登录时勾选“记住我”。
 
 登录过期时，在 Firefox 重新登录同一个账号，再运行原命令即可，无需复制 Cookie。多 Firefox 配置可在对应平台账号中指定 `firefox_profile` 为该 profile 的完整路径；sudo 启动时默认使用原普通用户的 Firefox。root 与普通用户的应用配置仍分别保存，root 使用 `/root/.config/vp/config.json`，普通用户使用自己的 `~/.config/vp/config.json`。
+
+首次导入失败会分别显示配置目录未找到、Cookie 读取失败、登录账号不符、HTTP 错误或网络验证失败等原因，不输出 Cookie 值。自定义目录可从已登录的 Firefox 的 `about:support` 页面复制“Profile Directory / 配置文件夹”，填入对应账号的 `firefox_profile`；不要填写缓存目录。QOJ 的 `handle` 区分大小写。网页已开始的 VP 在登录恢复后可以通过原命令接续，沿用原站开始时间。
 
 已有手动配置也可继续使用。要固定使用手动 Cookie，在账号中设置 `"cookie_source": "manual"`；填写 `cookie` 时只复制请求中 `Cookie` 的值，省略 `Cookie:` 标签和其他请求头。
 

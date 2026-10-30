@@ -5,7 +5,7 @@ import configparser
 from contextlib import closing
 from dataclasses import dataclass, field
 import hashlib
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 import json
 import os
 from pathlib import Path
@@ -28,24 +28,56 @@ class BrowserCookies:
     cookie: str = field(repr=False)
 
 
-def firefox_profiles(account: dict) -> list[Path]:
+def _diagnose(diagnostics: list[str] | None, message: str) -> None:
+    if diagnostics is not None and message not in diagnostics:
+        diagnostics.append(message)
+
+
+def firefox_profiles(account: dict, *, diagnostics: list[str] | None = None) -> list[Path]:
     explicit = account.get("firefox_profile")
     if explicit:
-        return [Path(explicit).expanduser().resolve()]
+        try:
+            path = Path(explicit).expanduser().resolve()
+            if path.is_dir():
+                return [path]
+        except (OSError, RuntimeError, TypeError, ValueError):
+            pass
+        _diagnose(diagnostics, "The configured firefox_profile is not an accessible directory; check the Root Directory in about:profiles.")
+        return []
     if os.name != "posix":
+        _diagnose(diagnostics, "Automatic Firefox profile discovery requires Linux; set firefox_profile explicitly.")
         return []
     home = Path.home()
-    if os.geteuid() == 0 and os.environ.get("SUDO_USER") not in (None, "", "root"):
+    sudo_user = os.geteuid() == 0 and os.environ.get("SUDO_USER") not in (None, "", "root")
+    if sudo_user:
         import pwd
         try:
             home = Path(pwd.getpwnam(os.environ["SUDO_USER"]).pw_dir)
         except KeyError:
-            pass
+            _diagnose(diagnostics, "Could not locate the invoking user's home directory; run vp as the Firefox user.")
+            return []
+    # sudo may retain root's XDG_CONFIG_HOME. Use the invoking user's default
+    # location there; a nonstandard location can still be selected explicitly.
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") if not sudo_user else home / ".config"
+    if not xdg.is_absolute():
+        xdg = home / ".config"
+    snap = home / "snap/firefox"
+    flatpak = home / ".var/app/org.mozilla.firefox"
+    bases = (home / ".mozilla/firefox", xdg / "mozilla/firefox",
+             snap / "common/.mozilla/firefox", snap / "common/.config/mozilla/firefox",
+             snap / "current/.mozilla/firefox", snap / "current/.config/mozilla/firefox",
+             flatpak / ".mozilla/firefox", flatpak / "config/mozilla/firefox")
     profiles = []
-    for base in (home / ".mozilla/firefox", home / "snap/firefox/common/.mozilla/firefox"):
+    seen_bases = set()
+    for base in bases:
         parser = configparser.ConfigParser(interpolation=None)
         try:
-            parser.read(base / "profiles.ini")
+            base = base.resolve()
+            if base in seen_bases:
+                continue
+            seen_bases.add(base)
+            with (base / "profiles.ini").open(encoding="utf8") as source:
+                parser.read_file(source)
             preferred = [parser[s]["Default"] for s in parser.sections()
                          if s.startswith("Install") and parser[s].get("Default")]
             entries = [s for s in parser.sections() if s.startswith("Profile")]
@@ -58,8 +90,12 @@ def firefox_profiles(account: dict) -> list[Path]:
                 path = (base / name if parser[section].get("IsRelative", "1") == "1" else Path(name)).resolve()
                 if path.is_dir() and path not in profiles:
                     profiles.append(path)
-        except (OSError, configparser.Error):
+        except FileNotFoundError:
             continue
+        except (OSError, RuntimeError, UnicodeError, configparser.Error) as exc:
+            _diagnose(diagnostics, f"A Firefox profiles.ini could not be read ({type(exc).__name__}).")
+    if not profiles:
+        _diagnose(diagnostics, "No Firefox profile was found in the legacy, XDG, Snap or Flatpak locations; set firefox_profile to the Root Directory in about:profiles.")
     return profiles
 
 
@@ -116,7 +152,7 @@ def _ordinary(attributes) -> bool:
     return not any(attributes.values()) if isinstance(attributes, dict) else attributes in (None, "")
 
 
-def _session_cookies(profile: Path, host: str) -> dict:
+def _session_cookies(profile: Path, host: str, *, diagnostics: list[str] | None = None) -> dict:
     files = [profile / "sessionstore.jsonlz4",
              profile / "sessionstore-backups/recovery.jsonlz4",
              profile / "sessionstore-backups/recovery.baklz4",
@@ -127,6 +163,7 @@ def _session_cookies(profile: Path, host: str) -> dict:
             return {}
         latest = max(existing, key=lambda p: p.stat().st_mtime_ns)
         if latest.stat().st_size > _MAX_SESSION_SIZE:
+            _diagnose(diagnostics, "The Firefox session recovery file exceeds the supported 16 MiB size.")
             return {}
         state = _decode_session(latest.read_bytes())
         cookies = list(state.get("cookies", []))
@@ -137,23 +174,28 @@ def _session_cookies(profile: Path, host: str) -> dict:
                 if c.get("host", "").lstrip(".") == host and c.get("path", "/") == "/"
                 and _ordinary(c.get("originAttributes")) and c.get("expiry", float("inf")) > time.time()
                 and isinstance(c.get("name"), str) and isinstance(c.get("value"), str)}
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        _diagnose(diagnostics, f"The Firefox session recovery file could not be read ({type(exc).__name__}).")
         return {}
 
 
 def _header(values: dict) -> str:
     jar = SimpleCookie()
     for name, value in values.items():
-        if (re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name)
+        if (isinstance(name, str) and isinstance(value, str)
+                and re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name)
                 and not any(ord(c) < 32 or ord(c) == 127 for c in value)):
-            jar[name] = value
+            try:
+                jar[name] = value
+            except CookieError:
+                continue
     return "; ".join(m.OutputString() for m in jar.values())
 
 
-def browser_cookies(platform: str, account: dict) -> list[BrowserCookies]:
+def browser_cookies(platform: str, account: dict, *, diagnostics: list[str] | None = None) -> list[BrowserCookies]:
     host = "qoj.ac" if platform == "qoj" else "codeforces.com"
     candidates = []
-    for profile in firefox_profiles(account):
+    for profile in firefox_profiles(account, diagnostics=diagnostics):
         persistent = {}
         database = profile / "cookies.sqlite"
         try:
@@ -163,62 +205,111 @@ def browser_cookies(platform: str, account: dict) -> list[BrowserCookies]:
                         "SELECT name, value FROM moz_cookies WHERE host IN (?, ?) AND path='/' "
                         "AND expiry > ? AND originAttributes='' ORDER BY lastAccessed",
                         (host, "." + host, int(time.time()))))
-        except (OSError, sqlite3.Error):
-            pass
-        combined = {**persistent, **_session_cookies(profile, host)}
+        except (OSError, sqlite3.Error) as exc:
+            _diagnose(diagnostics, f"Firefox cookies.sqlite could not be read ({type(exc).__name__}).")
+        combined = {**persistent, **_session_cookies(profile, host, diagnostics=diagnostics)}
         seen = set()
         for values in (combined, persistent):
             header = _header(values)
             if header and header not in seen:
                 candidates.append(BrowserCookies(profile, header))
                 seen.add(header)
+        if not seen:
+            _diagnose(diagnostics, f"No usable {host} cookies were found in a Firefox profile; sign in in a normal tab and allow Firefox to save the session.")
     return candidates
 
 
-def _verify(platform: str, candidate: BrowserCookies, expected: str) -> dict | None:
+def _verify(platform: str, candidate: BrowserCookies, expected: str, *, diagnostics: list[str] | None = None) -> dict | None:
     from .http import WebSession
     host = "qoj.ac" if platform == "qoj" else "codeforces.com"
     origin = "https://" + host
-    web = WebSession(origin, {"cookie": candidate.cookie}, auto_refresh=False)
+    web = None
     try:
-        response = web.session.get(origin + "/", params={"locale": "en"}, timeout=(5, 15))
-        web.check(response)
-        if urlsplit(response.url).hostname != host:
+        web = WebSession(origin, {"cookie": candidate.cookie}, auto_refresh=False)
+        try:
+            response = web.session.get(origin + "/", params={"locale": "en"}, timeout=(5, 15))
+        except Exception as exc:
+            _diagnose(diagnostics, f"The request to verify Firefox login on {host} failed ({type(exc).__name__}).")
             return None
+        try:
+            body = response.text[:3000]
+        except Exception:
+            body = ""
+        if "Just a moment..." in body or "cf-chl-" in body:
+            _diagnose(diagnostics, f"Cloudflare browser verification blocked the Firefox login check (HTTP {response.status_code}).")
+            return None
+        if response.status_code != 200:
+            _diagnose(diagnostics, f"{host} returned HTTP {response.status_code} while verifying Firefox login.")
+            return None
+        location = urlsplit(response.url)
+        if location.hostname != host:
+            _diagnose(diagnostics, "The Firefox login check was redirected to a different host.")
+            return None
+        if location.path in ("/login", "/enter"):
+            _diagnose(diagnostics, f"{host} did not accept the saved Firefox login and redirected to its login page.")
+            return None
+        web.check(response)
         soup = BeautifulSoup(response.text, "html.parser")
         selector = "ul.nav-pills, .navbar, nav, header, .nav-item.dropdown .dropdown-menu" if platform == "qoj" else "#header"
         prefix = "/user/profile/" if platform == "qoj" else "/profile/"
+        links = [a for header in soup.select(selector) for a in header.select("a[href]")]
         handles = {urlsplit(a.get("href", "")).path[len(prefix):].rstrip("/")
-                   for header in soup.select(selector) for a in header.select("a[href]")
+                   for a in links
                    if urlsplit(a["href"]).path.startswith(prefix)}
+        if not handles:
+            if any(urlsplit(a["href"]).path in ("/login", "/enter") for a in links):
+                _diagnose(diagnostics, f"{host} reports that the saved Firefox session is not logged in.")
+            else:
+                _diagnose(diagnostics, "The logged-in account could not be identified in the page navigation; the page layout may have changed.")
+            return None
         if expected:
             handles = {h for h in handles if h == expected or platform != "qoj" and h.lower() == expected.lower()}
+            if not handles:
+                detail = "; QOJ handles are matched case-sensitively" if platform == "qoj" else ""
+                _diagnose(diagnostics, "The Firefox account does not match the configured handle" + detail + ".")
+                return None
         if len(handles) != 1:
+            _diagnose(diagnostics, "Multiple accounts were found in the page navigation; the logged-in account could not be identified safely.")
             return None
-        values = {c.name: c.value for c in web.session.cookies.jar
+        jar = getattr(web.session.cookies, "jar", web.session.cookies)
+        values = {c.name: c.value for c in jar
                   if c.domain.lstrip(".") == host and c.path == "/"}
-        return {"cookie": _header(values), "handle": expected or handles.pop(),
+        cookie = _header(values)
+        if not cookie:
+            _diagnose(diagnostics, "The Firefox account was identified, but no usable login cookies remained.")
+            return None
+        return {"cookie": cookie, "handle": expected or handles.pop(),
                 "cookie_source": "firefox", "firefox_profile": str(candidate.profile)}
-    except Exception:
+    except Exception as exc:
         # Do not replace a configured session on network failure or another login.
+        # Exception text can contain request headers, so report only its type.
+        _diagnose(diagnostics, f"Firefox login verification failed ({type(exc).__name__}).")
         return None
     finally:
-        web.session.close()
+        if web is not None:
+            try:
+                web.session.close()
+            except Exception:
+                pass
 
 
-def refresh_browser_account(platform: str, account: dict, *, force: bool = False) -> bool:
+def refresh_browser_account(platform: str, account: dict, *, force: bool = False,
+                            diagnostics: list[str] | None = None) -> bool:
     if account.get("cookie_source") == "manual":
         return False
-    for candidate in browser_cookies(platform, account):
+    for candidate in browser_cookies(platform, account, diagnostics=diagnostics):
         key = ("qoj" if platform == "qoj" else "cf", str(candidate.profile), account.get("handle", ""),
                hashlib.sha256(candidate.cookie.encode()).digest())
         with _lock:
             cached = _cache.get(key)
-            if not force and cached and time.monotonic() - cached[0] < 30:
+            if not force and cached and cached[1] and time.monotonic() - cached[0] < 30:
                 verified = cached[1]
             else:
-                verified = _verify(platform, candidate, account.get("handle", ""))
-                _cache[key] = (time.monotonic(), verified)
+                verified = _verify(platform, candidate, account.get("handle", ""), diagnostics=diagnostics)
+                if verified:
+                    _cache[key] = (time.monotonic(), verified)
+                else:
+                    _cache.pop(key, None)
         if verified:
             account.update(verified)
             return True
