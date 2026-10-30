@@ -182,7 +182,11 @@ def prepare_start(url: str) -> tuple[Path, dict]:
         current = read_json(state_root / "current.json")
         if current:
             old = read_json(Path(current["state_path"]))
-            if old.get("url") == canonical and tmux_exists(old.get("tmux_session", "")):
+            running = (old.get("status") != "complete" and time.time() < old.get("start_time", 0)
+                       + old.get("contest", {}).get("rules", {}).get("duration", 0))
+            # A reboot removes tmux sessions, but an ongoing VP can still be
+            # resumed from its saved state; start() recreates the missing session.
+            if old.get("url") == canonical and (running or tmux_exists(old.get("tmux_session", ""))):
                 # A resumed session still needs a usable local submission file;
                 # refreshing it never starts or resets the native participation.
                 config = load_account(platform)
@@ -194,7 +198,7 @@ def prepare_start(url: str) -> tuple[Path, dict]:
                 configure_submit(api, Contest.from_dict(old["contest"]), directory)
                 bind_submit_context(directory, Path(current["state_path"]), old)
                 return Path(current["state_path"]), old
-            if old.get("status") != "complete" and time.time() < old.get("start_time", 0) + old.get("contest", {}).get("rules", {}).get("duration", 0):
+            if running:
                 raise VPError(f"A native VP is already running: {old.get('url')}. Open that URL to resume it.")
         config = load_account(platform)
         api = adapter(canonical, config)
