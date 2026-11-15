@@ -10,7 +10,9 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
+import tempfile
 import threading
 import time
 from urllib.parse import urlsplit
@@ -192,21 +194,65 @@ def _header(values: dict) -> str:
     return "; ".join(m.OutputString() for m in jar.values())
 
 
+def _cookie_rows(connection, host: str) -> dict:
+    return dict(connection.execute(
+        "SELECT name, value FROM moz_cookies WHERE host IN (?, ?) AND path='/' "
+        "AND expiry > ? AND originAttributes='' ORDER BY lastAccessed",
+        (host, "." + host, int(time.time()))))
+
+
+def _cookie_stamp(path: Path):
+    try:
+        stat = path.stat()
+        return stat.st_ino, stat.st_size, stat.st_mtime_ns
+    except FileNotFoundError:
+        return None
+
+
+def _persistent_cookies(database: Path, host: str, *, diagnostics: list[str] | None = None) -> dict:
+    if not database.is_file():
+        return {}
+    try:
+        with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.5)) as connection:
+            return _cookie_rows(connection, host)
+    except sqlite3.OperationalError as exc:
+        if (getattr(exc, "sqlite_errorcode", 0) & 0xff) not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            _diagnose(diagnostics, "Firefox cookies.sqlite could not be read (OperationalError).")
+            return {}
+    except (OSError, sqlite3.Error) as exc:
+        _diagnose(diagnostics, f"Firefox cookies.sqlite could not be read ({type(exc).__name__}).")
+        return {}
+    # Firefox can hold an exclusive SQLite lock while it is open. Read a
+    # private, stable copy including its journal; copying only the main file
+    # would omit freshly committed WAL cookies. Never modify the live profile.
+    files = [database, database.with_name(database.name + "-wal"),
+             database.with_name(database.name + "-journal")]
+    try:
+        for _ in range(3):
+            with tempfile.TemporaryDirectory(prefix="vp-firefox-cookies-") as temporary:
+                before = [_cookie_stamp(path) for path in files]
+                for path, stamp in zip(files, before):
+                    if stamp is not None:
+                        target = Path(temporary) / path.name
+                        shutil.copyfile(path, target)
+                        target.chmod(0o600)
+                if before != [_cookie_stamp(path) for path in files]:
+                    continue
+                # SQLite may recover the copied journal in this private folder.
+                with closing(sqlite3.connect(Path(temporary) / database.name, timeout=0.5)) as connection:
+                    return _cookie_rows(connection, host)
+    except (OSError, sqlite3.Error) as exc:
+        _diagnose(diagnostics, f"The locked Firefox cookie database snapshot could not be read ({type(exc).__name__}).")
+        return {}
+    _diagnose(diagnostics, "Firefox cookies.sqlite kept changing; a stable login snapshot could not be read.")
+    return {}
+
+
 def browser_cookies(platform: str, account: dict, *, diagnostics: list[str] | None = None) -> list[BrowserCookies]:
     host = "qoj.ac" if platform == "qoj" else "codeforces.com"
     candidates = []
     for profile in firefox_profiles(account, diagnostics=diagnostics):
-        persistent = {}
-        database = profile / "cookies.sqlite"
-        try:
-            if database.is_file():
-                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.5)) as conn:
-                    persistent = dict(conn.execute(
-                        "SELECT name, value FROM moz_cookies WHERE host IN (?, ?) AND path='/' "
-                        "AND expiry > ? AND originAttributes='' ORDER BY lastAccessed",
-                        (host, "." + host, int(time.time()))))
-        except (OSError, sqlite3.Error) as exc:
-            _diagnose(diagnostics, f"Firefox cookies.sqlite could not be read ({type(exc).__name__}).")
+        persistent = _persistent_cookies(profile / "cookies.sqlite", host, diagnostics=diagnostics)
         combined = {**persistent, **_session_cookies(profile, host, diagnostics=diagnostics)}
         seen = set()
         for values in (combined, persistent):

@@ -48,6 +48,19 @@ _RETRY_TOTAL = 2
 _RETRY_STATUS = frozenset({429, 502, 503, 504})
 _RETRY_BACKOFF = 1.0
 
+
+def _browser_challenge(response) -> bool:
+    if (response.headers.get("cf-mitigated") or "").lower() == "challenge":
+        return True
+    content_type = (response.headers.get("Content-Type") or "").lower()
+    if content_type and "text/" not in content_type and "html" not in content_type:
+        return False
+    try:
+        body = response.text[:3000]
+    except Exception:
+        return False
+    return "Just a moment..." in body or "cf-chl-" in body
+
 try:
     from curl_cffi import requests as _requests
 
@@ -118,8 +131,10 @@ class WebSession:
                 time.sleep(_RETRY_BACKOFF * 2 ** (attempt - 1))
             try:
                 r = self.session.get(url, timeout=(10, 40), **kwargs)
-                if (not refreshed and r.status_code == 200
-                        and urlsplit(r.url).path in ("/login", "/enter")):
+                expired = r.status_code == 200 and urlsplit(r.url).path in ("/login", "/enter")
+                challenged = (r.status_code in (200, 403) and _browser_challenge(r)
+                              and urlsplit(r.url).hostname == urlsplit(self.origin).hostname)
+                if not refreshed and (expired or challenged):
                     refreshed = True
                     if self._refresh_browser(force=True):
                         # Only an idempotent GET is repeated after refreshing login.
@@ -143,24 +158,15 @@ class WebSession:
         return self.check(r)
 
     def check(self, r):
+        if r.status_code in (200, 403) and _browser_challenge(r):
+            raise VPError(f"{urlsplit(r.url).hostname} requests browser verification (HTTP {r.status_code}). "
+                          "Open this site in Firefox and complete verification, then run the command again.")
         if r.status_code != 200:
             raise VPError(f"{urlsplit(r.url).hostname} returned HTTP {r.status_code}")
         if urlsplit(r.url).path in ("/login", "/enter"):
             if self.account.get("cookie_source") == "manual":
                 raise VPError("Login session expired; update the account cookie in ~/.config/vp/config.json.")
             raise VPError("Login session expired. Log in to this site in Firefox, then run the command again.")
-        # Cloudflare's interstitial is only meaningful for textual responses.
-        # A PDF or other binary body must not be decoded here: requests happens
-        # to tolerate it, but curl_cffi reports such a response with a non-codec
-        # encoding ("binary") and raises LookupError/UnicodeDecodeError.
-        content_type = (r.headers.get("Content-Type") or "").lower()
-        if not content_type or "text/" in content_type or "html" in content_type:
-            try:
-                body = r.text[:3000]
-            except Exception:
-                body = ""
-            if "Just a moment..." in body or "cf-chl-" in body:
-                raise VPError("The platform requests browser verification; refresh the login session in the Ubuntu browser.")
         return r
 
     def soup(self, url: str, **kwargs) -> BeautifulSoup:
