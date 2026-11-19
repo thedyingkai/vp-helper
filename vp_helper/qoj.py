@@ -143,30 +143,37 @@ class QOJ:
         return None
 
     def start(self, contest: Contest) -> float:
+        current = self._registration(duration=contest.rules.duration)
         soup = self._page()
         nav = soup.select_one("ul.nav-pills")
         if not nav or not any(urlsplit(a.get("href", "")).path == f"/user/profile/{self.handle}" for a in nav.select("a")):
             raise VPError("The QOJ login cookie does not belong to the configured handle.")
-        current = self._registration(duration=contest.rules.duration)
         if current and time.time() < current[0] + current[1]:
             self.start_time = current[0]
             contest.rules.duration = current[1]
             return self.start_time
         form = soup.select_one("form#form-regvir")
         if form is None:
+            # The user may have started in the browser just after the first read.
+            current = current or self._registration(duration=contest.rules.duration)
             if current:
                 self.start_time = current[0]
                 contest.rules.duration = current[1]
                 return self.start_time
             raise VPError("QOJ did not offer native virtual participation for this account.")
+        button = form.select_one('button[name="submit-regvir"], input[type="submit"][name="submit-regvir"]')
+        if form.get("method", "").lower() != "post" or button is None or button.has_attr("disabled"):
+            raise VPError("QOJ did not provide an enabled VP start button in its form.")
         payload = form_values(form)
-        payload["submit-regvir"] = "regvir"
+        payload[button["name"]] = button.get("value", "")
         if not payload.get("_token"):
             raise VPError("QOJ did not provide a native VP start token.")
+        form_page = self.url + "?locale=en"
+        action = urljoin(form_page, form.get("action") or form_page)
         post_error = None
         site_message = ""
         try:
-            response = self.web.post(urljoin(self.url, form.get("action", self.url)), payload)
+            response = self.web.post(action, payload, form_page=form_page)
             site_message = self._start_message(response)
         except VPError as exc:
             # The request may have reached QOJ even if its response was lost.
@@ -189,17 +196,16 @@ class QOJ:
                 return self.start_time
             if site_message:
                 break
+        registry_hint = f"Check your registration in the browser at {self.url}/registrants."
         if post_error:
-            raise post_error
+            raise VPError(f"{post_error} {registry_hint}") from post_error
         if site_message:
             raise VPError(f"QOJ could not start the VP: {site_message}")
         if registration_error:
-            raise VPError(f"The native VP start could not be verified: {registration_error}. "
-                          f"Run vp qoj {self.id} again to check the existing registration.")
+            raise VPError(f"The native VP start could not be verified: {registration_error}. {registry_hint}")
         if current and confirmed and confirmed[0] <= current[0]:
             raise VPError("QOJ did not create a new native VP; the old participation is already finished.")
-        raise VPError("QOJ did not confirm a VP start time in the account registration record. "
-                      f"Run vp qoj {self.id} again to check the existing registration.")
+        raise VPError(f"QOJ did not confirm a VP start time in the account registration record. {registry_hint}")
 
     @staticmethod
     def _start_message(response) -> str:

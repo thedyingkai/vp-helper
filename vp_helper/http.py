@@ -3,7 +3,7 @@ from __future__ import annotations
 from http.cookies import SimpleCookie
 from pathlib import Path
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -149,12 +149,29 @@ class WebSession:
         # The final iteration always returns or raises; this keeps the flow total.
         raise VPError(f"Connection failed: {host}")  # pragma: no cover
 
-    def post(self, url: str, data: dict):
+    def post(self, url: str, data: dict, *, form_page: str | None = None):
+        options = {}
+        if form_page is not None:
+            origin = urlsplit(self.origin)[:2]
+            if urlsplit(url)[:2] != origin or urlsplit(form_page)[:2] != origin:
+                raise VPError("The platform returned a form outside its own site.")
+            # Carry the verified form page's origin through the submission.
+            # Handle redirects explicitly so they cannot resend the POST.
+            options = {"allow_redirects": False, "headers": {
+                "Origin": self.origin, "Referer": form_page, "Sec-Fetch-Site": "same-origin",
+            }}
         try:
-            # Never retry a native contest start automatically.
-            r = self.session.post(url, data=data, timeout=(10, 40))
+            r = self.session.post(url, data=data, timeout=(10, 40), **options)
         except _RequestException:
-            raise VPError("The server did not confirm starting the VP. Run the same URL to check the remote state.") from None
+            raise VPError("The server did not confirm the VP request.") from None
+        if form_page is not None and r.status_code in (301, 302, 303):
+            location = r.headers.get("Location")
+            if not location:
+                raise VPError("The platform did not provide the form result page.")
+            target = urljoin(url, location)
+            if urlsplit(target)[:2] != origin:
+                raise VPError("The platform redirected the form outside its own site.")
+            return self.get(target, retry=False)
         return self.check(r)
 
     def check(self, r):
