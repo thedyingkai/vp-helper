@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from .models import Medals, VPError
+from .provincial import provincial_name
 
 
 def contest_id_url(platform: str, ident: str) -> str:
@@ -71,6 +72,9 @@ def js_value(html: str, key: str, default=None):
 
 def directory_name(titles: list[str]) -> str:
     for title in titles:
+        province = provincial_name(title)
+        if province:
+            return province
         # Recent CCPC titles pair a Chinese name with a complete English name.
         english = [part for part in re.findall(r"[（(]([^（）()]+)[）)]", title)
                    if re.search(r"\b(?:ICPC|CCPC)\b", part, re.I) and re.search(r"\b20\d{2}\b", part)]
@@ -91,7 +95,7 @@ def directory_name(titles: list[str]) -> str:
         site = " ".join(site.split()).strip(" .")
         if site:
             return f"{year[1]} {series[1].upper()} {site} {kind}"
-    raise VPError("The platform does not identify an ICPC/CCPC year, site and Reg/Inv/Pro contest name.")
+    raise VPError("The platform does not identify a supported ICPC/CCPC regional, invitational or Chinese provincial contest name and year.")
 
 
 def ccpc_reveal_count(name: str) -> int | None:

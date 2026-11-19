@@ -12,6 +12,7 @@ from .http import WebSession, form_values
 from .models import Cell, Contest, Medals, Reference, Rules, Submission, TeamScore, VPError
 from .originals import OriginalReplay, classify, load_metadata
 from .parsing import ccpc_reveal_count, directory_name, medals_from_html
+from .provincial import provincial_parts, ranking_group
 from .scoring import verdict
 
 _api_lock = threading.Lock()
@@ -108,11 +109,15 @@ class Gym:
         freeze = raw.get("freezeDurationSeconds")
         medals = medals_from_html(dashboard_html, self.url)
         self._original = data
-        return Contest(self.platform, self.id, self.url, name, name,
+        contest = Contest(self.platform, self.id, self.url, name, name,
                        {p["index"]: p["index"] for p in data["problems"]},
                        Rules(duration, freeze_at=duration-int(freeze) if freeze else None,
                              problem_reveal_count=ccpc_reveal_count(name)),
                        pdfs, medals, raw.get("startTimeSeconds"), raw.get("websiteUrl"))
+        if provincial_parts(name):
+            contest.extra["provincial_group"] = self.account.get("provincial_group", "official")
+            ranking_group(contest)
+        return contest
 
     def _virtual_party(self):
         data = self.api("contest.standings", contestId=self.id, handles=self.handle,
@@ -224,7 +229,7 @@ class Gym:
             self._original = final
         complete = final["contest"]["phase"] == "FINISHED" and not final["contest"].get("frozen", False)
         rows = self.rows_from_api(final, contest)
-        if any(raw["party"].get("ghost") for raw in final["rows"]):
+        if provincial_parts(contest.name) or any(raw["party"].get("ghost") for raw in final["rows"]):
             try:
                 # Imported CONTESTANT ghosts can have lost starred-team flags.
                 classify(rows, contest, load_metadata(contest))

@@ -18,6 +18,7 @@ import requests
 
 from .models import Contest, Medals, Reference, Submission, TeamScore, VPError
 from .parsing import timestamp
+from .provincial import provincial_name, provincial_parts, ranking_group
 from .scoring import score_submissions, verdict
 from .storage import read_json, write_json
 
@@ -63,6 +64,10 @@ def identity(name: str) -> str:
 
 
 def archive_path(contest: Contest) -> str | None:
+    province = provincial_parts(contest.name)
+    if province:
+        year, _, site = province
+        return f"data/provincial-contest/{year}/" + site.lower().replace(" ", "-")
     match = re.fullmatch(r"(20\d\d) (ICPC|CCPC) ([A-Za-z][A-Za-z .-]*) Reg", contest.name)
     if not match:
         return None
@@ -72,6 +77,15 @@ def archive_path(contest: Contest) -> str | None:
     slug = re.sub(r"[ .]+", "-", site.lower())
     slug = {"hong-kong": "hongkong"}.get(slug, slug)
     return f"data/{kind.lower()}/{edition}{suffix}/" + slug
+
+
+def archive_paths(contest: Contest) -> list[str]:
+    path = archive_path(contest)
+    if path is None:
+        return []
+    province = provincial_parts(contest.name)
+    # Some provinces hold separate ICPC and CCPC events in the same year.
+    return [path + "-" + province[1].lower(), path] if province and province[1] else [path]
 
 
 def board_metadata(config: dict, teams: list | dict, contest: Contest, source: str,
@@ -109,10 +123,27 @@ def board_metadata(config: dict, teams: list | dict, contest: Contest, source: s
                     raise ValueError("duplicate organization identity")
                 organizations_by_id[ident] = name(organization)
         projected = []
+        provincial = provincial_parts(contest.name) is not None
+        divisions = config.get("group", {})
+        team_values = teams.values() if isinstance(teams, dict) else teams
+        has_guests = (isinstance(divisions, dict) and "guest" in divisions
+                      or any("guest" in team.get("group", []) for team in team_values))
+        available = ["official", "guest", "all"] if has_guests else ["official", "all"]
+        selected = ranking_group(contest, {"ranking_groups": available}) if provincial else None
         items = teams.items() if isinstance(teams, dict) else enumerate(teams)
         for key, team in items:
             group = set(team.get("group", [])) & {"official", "unofficial"}
-            if isinstance(team.get("official"), bool):
+            provincial_flags = set(team.get("group", [])) & {"official", "guest", "unofficial"}
+            if provincial and provincial_flags:
+                if len(provincial_flags) != 1:
+                    raise ValueError("ambiguous provincial division")
+                division = next(iter(provincial_flags))
+                if division == "unofficial" and team.get("official") is True:
+                    raise ValueError("inconsistent starred eligibility")
+                if division != "unofficial" and team.get("unofficial") is True:
+                    raise ValueError("inconsistent starred eligibility")
+                official = division != "unofficial" and selected in (division, "all")
+            elif isinstance(team.get("official"), bool):
                 official = team["official"]
             elif isinstance(team.get("unofficial"), bool):
                 official = not team["unofficial"]
@@ -128,51 +159,70 @@ def board_metadata(config: dict, teams: list | dict, contest: Contest, source: s
             members = [name(member) for member in team["members"]]
             projected.append({"id": str(team.get("team_id", team.get("id", key))),
                               "name": f"{organization} - {team_name} - {', '.join(members)}", "official": official})
-        return {"version": 1, "contest_name": contest.name, "duration": duration,
+            if provincial and provincial_flags:
+                projected[-1]["group"] = division
+        result = {"version": 1, "contest_name": contest.name, "duration": duration,
                 "penalty_minutes": penalty // 60, "problems": labels,
                 "problem_ids": {str(p.get("id", i)): p["label"] for i, p in enumerate(config["problems"])} if config.get("problems") else {str(i): label for i, label in enumerate(labels)},
                 "source": source, "teams": projected,
                 "medals": config.get("medal", {}).get("official") if isinstance(config.get("medal"), dict) else None}
+        if provincial:
+            title = name(config["contest_name"])
+            source_name = provincial_name(title)
+            source_parts = provincial_parts(source_name) if source_name else None
+            target_parts = provincial_parts(contest.name)
+            if (source_parts is None or source_parts[0] != target_parts[0] or source_parts[2] != target_parts[2]
+                    or target_parts[1] is not None and source_parts[1] != target_parts[1]):
+                raise ValueError("provincial archive title does not match")
+            group_labels = {"official": "Province", "guest": "Guest", "all": "All non-starred"}
+            label = divisions.get(selected) if isinstance(divisions, dict) else None
+            result.update(ranking_group=selected, ranking_groups=available,
+                          ranking_group_label=label if isinstance(label, str) else group_labels[selected],
+                          original_title=title)
+            medal_key = "official" if selected == "all" and "guest" not in available else selected
+            result["medals"] = config.get("medal", {}).get(medal_key) if isinstance(config.get("medal"), dict) else None
+        return result
     except (KeyError, TypeError, ValueError):
         raise VPError("The original archive lacks supported explicit team eligibility or contest rules.") from None
 
 
 def load_metadata(contest: Contest, *, web=None) -> dict:
     cached = contest.extra.get("original_eligibility") or read_json(cache_path("eligibility", contest.url))
-    if cached:
+    if cached and (not provincial_parts(contest.name) or cached.get("ranking_group") == ranking_group(contest, cached)):
         return cached
-    path = archive_path(contest)
-    if path is None:
+    paths = archive_paths(contest)
+    if not paths:
         raise VPError("Original team eligibility is unavailable; starred teams cannot be verified.")
-    source = "https://raw.githubusercontent.com/xcpcio/board-data/main/" + path
-    try:
-        # Public archive reads use a separate session, without the OJ's credentials.
-        with (nullcontext(web) if web is not None else requests.Session()) as public:
-            files = []
-            for filename in ("config.json", "team.json"):
-                files.append(archive_json(public, source + "/" + filename))
-            teams = list(files[1].values()) if isinstance(files[1], dict) else files[1]
-            organizations = None
-            if any("organization" not in team and "organization_id" in team for team in teams):
-                if files[0].get("organizations", {}).get("url") != "organizations.json":
-                    raise VPError("The original archive's organization reference is unsupported.")
-                organizations = archive_json(public, source + "/organizations.json")
-        return board_metadata(*files, contest, source, organizations)
-    except (requests.RequestException, ValueError, VPError) as original_error:
-        from . import srk
-        source = srk.source_url(contest)
-        if source:
-            try:
-                with (nullcontext(web) if web is not None else requests.Session()) as public:
-                    data = archive_json(public, source)
-                result = srk.metadata(data, contest, source)
-                write_json(cache_path("srk", source), {"source": source, "ranklist": data})
-                return result
-            except (requests.RequestException, ValueError, VPError):
-                raise VPError("Original eligibility could not be verified from XCPCIO or the SRK archive.") from None
-        if isinstance(original_error, VPError):
-            raise
-        raise VPError("Original team eligibility could not be read from XCPCIO; the official rank remains unavailable.") from None
+    original_error = None
+    for path in paths:
+        source = "https://raw.githubusercontent.com/xcpcio/board-data/main/" + path
+        try:
+            # Public archive reads use a separate session, without the OJ's credentials.
+            with (nullcontext(web) if web is not None else requests.Session()) as public:
+                files = [archive_json(public, source + "/" + filename) for filename in ("config.json", "team.json")]
+                teams = list(files[1].values()) if isinstance(files[1], dict) else files[1]
+                organizations = None
+                if any("organization" not in team and "organization_id" in team for team in teams):
+                    if files[0].get("organizations", {}).get("url") != "organizations.json":
+                        raise VPError("The original archive's organization reference is unsupported.")
+                    organizations = archive_json(public, source + "/organizations.json")
+            return board_metadata(*files, contest, source, organizations)
+        except (requests.RequestException, ValueError, VPError) as exc:
+            original_error = exc
+    from . import srk
+    source = srk.source_url(contest)
+    if source:
+        try:
+            with (nullcontext(web) if web is not None else requests.Session()) as public:
+                data = archive_json(public, source)
+            result = srk.metadata(data, contest, source)
+            write_json(cache_path("srk", source), {"source": source, "ranklist": data})
+            return result
+        except (requests.RequestException, ValueError, VPError):
+            raise VPError("Original eligibility could not be verified from XCPCIO or the SRK archive.") from None
+    if isinstance(original_error, VPError):
+        raise original_error
+    raise VPError("Original team eligibility could not be read from XCPCIO; the official rank remains unavailable.") from None
 
 
 def eligibility_lookup(teams: list[dict]) -> dict:
@@ -207,6 +257,8 @@ def classify(rows: list[TeamScore], contest: Contest, metadata: dict | None = No
             or metadata.get("penalty_minutes") != contest.rules.penalty_minutes
             or metadata.get("problems") != list(contest.problems)):
         raise VPError("The original eligibility archive does not match this contest's rules and problems.")
+    if provincial_parts(contest.name) and metadata.get("ranking_group") != ranking_group(contest, metadata):
+        raise VPError("The cached provincial standings use a different ranking group.")
     teams = metadata.get("teams", [])
     lookup = eligibility_lookup(teams)
     if not teams or not all(isinstance(t.get("official"), bool) for t in teams):
@@ -251,6 +303,8 @@ def classify(rows: list[TeamScore], contest: Contest, metadata: dict | None = No
         row.name = name
     rows[:] = [row for row, _, _ in resolved]
     contest.extra["original_eligibility"] = metadata
+    if metadata.get("ranking_group_label"):
+        contest.extra["ranking_group_label"] = metadata["ranking_group_label"]
     write_json(cache_path("eligibility", contest.url), metadata)
     medals = metadata.get("medals")
     if isinstance(medals, dict) and all(isinstance(medals.get(k), int) and medals[k] >= 0 for k in ("gold", "silver", "bronze")):
@@ -332,6 +386,42 @@ class OriginalReplay:
     """An event timeline accepted only when every final scoring cell agrees."""
 
     def __init__(self, contest: Contest, teams: list[dict], submissions: list[Submission], expected: list[TeamScore]):
+        self._initialize(contest, teams, submissions)
+        final = self._rows(contest, contest.rules.duration, released=True)
+        lookup = {identity(row.name): row for row in final}
+        if len(lookup) != len(final) or len(final) != len(expected):
+            raise VPError("The original timeline and scoreboard have different teams.")
+        for row in expected:
+            actual = lookup.get(identity(row.name))
+            if (actual is None or actual.eligible != row.eligible or actual.rank_key != row.rank_key
+                    or any(actual.cells[p] != row.cells[p] for p in self.problems)):
+                raise VPError("Original submission events do not reproduce the judge's final scoreboard; live ranking is unavailable.")
+
+    @classmethod
+    def from_provincial_archive(cls, contest: Contest, metadata: dict, submissions: list[Submission]):
+        """Use the original publisher when QOJ has no imported original teams."""
+        title = provincial_name(metadata.get("original_title", ""))
+        source_parts = provincial_parts(title) if title else None
+        target = provincial_parts(contest.name)
+        sources = {"https://raw.githubusercontent.com/xcpcio/board-data/main/" + path for path in archive_paths(contest)}
+        if (not target or not source_parts or source_parts[0] != target[0] or source_parts[2] != target[2]
+                or target[1] is not None and source_parts[1] != target[1]
+                or metadata.get("source") not in sources or metadata.get("version") != 1
+                or metadata.get("contest_name") != contest.name or metadata.get("duration") != contest.rules.duration
+                or metadata.get("penalty_minutes") != contest.rules.penalty_minutes
+                or metadata.get("problems") != list(contest.problems)
+                or metadata.get("ranking_group") != ranking_group(contest, metadata)):
+            raise VPError("The original provincial archive identity, source, rules or ranking group does not match.")
+        teams = metadata.get("teams", [])
+        eligibility_lookup(teams)
+        if not teams or not all(type(team.get("official")) is bool for team in teams):
+            raise VPError("The original provincial archive lacks explicit team eligibility.")
+        replay = cls.__new__(cls)
+        replay._initialize(contest, teams, submissions)
+        replay.source_message = "Original XCPCIO submissions replayed at VP time"
+        return replay
+
+    def _initialize(self, contest: Contest, teams: list[dict], submissions: list[Submission]):
         self.problems = list(contest.problems)
         self.duration = contest.rules.duration
         self.teams = teams
@@ -349,15 +439,6 @@ class OriginalReplay:
             self.events[event.team].append(event)
         self._cache_key = None
         self._cache = None
-        final = self._rows(contest, contest.rules.duration, released=True)
-        lookup = {identity(row.name): row for row in final}
-        if len(lookup) != len(final) or len(final) != len(expected):
-            raise VPError("The original timeline and scoreboard have different teams.")
-        for row in expected:
-            actual = lookup.get(identity(row.name))
-            if (actual is None or actual.eligible != row.eligible or actual.rank_key != row.rank_key
-                    or any(actual.cells[p] != row.cells[p] for p in self.problems)):
-                raise VPError("Original submission events do not reproduce the judge's final scoreboard; live ranking is unavailable.")
 
     def _rows(self, contest: Contest, elapsed: float, *, released: bool) -> list[TeamScore]:
         result = []
@@ -381,6 +462,6 @@ class OriginalReplay:
         if key != self._cache_key:
             self._cache = Reference(self._rows(contest, key[0], released=released),
                                     complete=True, statistics_complete=True, released=released,
-                                    message="Scoreboard frozen" if key[1] else "Original submissions replayed at VP time", replay=self)
+                                    message="Scoreboard frozen" if key[1] else getattr(self, "source_message", "Original submissions replayed at VP time"), replay=self)
             self._cache_key = key
         return self._cache

@@ -2,7 +2,7 @@
 
 Ubuntu 上的 XCPC 虚拟参赛终端助手，支持 QOJ、Codeforces ICPC 比赛和 Codeforces Gym。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
 
-当前版本：0.1.17。
+当前版本：0.1.18。
 
 ## 安装
 
@@ -44,6 +44,10 @@ vp history
 ```
 
 也支持 `vp CONTEST_URL`。计分范围限定为 ICPC；普通 Codeforces Round 的 CF / IOI 计分会在开赛前被拒绝。
+
+支持中文及英文省赛标题，标题无需包含 `ICPC` 或 `CCPC`。例如 `vp qoj 4707` 会识别为 `2026 Liaoning Pro`，采用原站的 5 小时赛长、4 小时封榜和 14 道题。省份和年份用于查找对应的原赛档案；明确标有 ICPC / CCPC 的省赛保留该系列信息，热身赛和邀请赛不会套用正式省赛档案。
+
+省赛分别设置省内、省外奖项时，在平台账号配置中用 `provincial_group` 选择比较组：`official` 表示省内组，`guest` 表示省外组，`all` 表示全部非打星队的总排名。默认使用原赛 `official` 组；原赛只有一个正式组时使用该组。排名、提交统计和金银铜线都按选中的组计算，面板右上角显示原赛分组名称。选择 `all` 且原赛分组颁奖时，奖项保持未知，不合并两组奖牌名额。修改分组只影响新准备的 VP，已有比赛保留它保存的分组。
 
 先在 Ubuntu 的 Firefox 登录 QOJ 或 Codeforces，再运行比赛命令。`vp` 和内置 `submit` 自动读取 Firefox 的登录状态，并通过网站导航中的登录用户核对账号；未填写 handle 时也可以从已验证的浏览器登录自动取得。Codeforces / Gym 的 API key 与 API secret 仍在首次使用时配置。配置保存在 `~/.config/vp/config.json`，权限为 600；也可以参考 `config.example.json` 填写。`cf` 与 `gym` 默认共用 Codeforces 配置。
 
@@ -98,6 +102,8 @@ QOJ 在 VP 进行中返回的账号榜单已经按当前时间截断，程序使
 ## 数据与第三方组件
 
 仓库和安装包不包含任何比赛数据。首次使用时自动获取，可识别的 ICPC / CCPC 区域赛从 [XCPCIO board-data](https://github.com/xcpcio/board-data) 读取正式参赛资格、奖牌配置和原赛提交记录，按学校、队名和成员身份与平台榜单匹配。资格校验通过、提交记录复算与终榜一致后，才保存相应缓存。
+
+省赛读取 XCPCIO 的 `provincial-contest/年份/省份` 原赛档案。QOJ 没有导入原赛队伍时，程序核对原发布者档案的年份、省份、系列、正式赛标题、题号、时长、罚时和明确分组，再直接回放原赛提交；此时以 XCPCIO 原始记录作为参考榜来源。QOJ 已有原赛 ghost 时，继续核对导入终榜，导入数据不一致时保留错误提示。
 
 XCPCIO 尚未收录的 CCPC 区域赛，会尝试 [SRK Collection](https://github.com/algoux/srk-collection) 的公开原赛档案。SRK 档案须明确标记正式参赛资格，且题目链接与当前 QOJ 比赛的全部题目 ID 一致；提交记录须逐题复算并与 QOJ 公开终榜匹配，才启用赛时回放。学校、队名、成员等身份信息完全一致且仅有一份非空记录的换账号空记录会被排除；存在多份实际参赛记录时保留校验失败提示。
 

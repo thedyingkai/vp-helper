@@ -14,6 +14,7 @@ from .http import WebSession, form_values
 from .models import Cell, Contest, Reference, Rules, Submission, TeamScore, VPError
 from .originals import OriginalReplay, cache_archive_submissions, classify, eligibility_lookup, identity, load_archive_submissions, load_metadata, lookup_team
 from .parsing import ccpc_reveal_count, directory_name, js_value, medals_from_html, seconds, timestamp
+from .provincial import provincial_parts, ranking_group
 from .scoring import verdict
 
 
@@ -93,10 +94,14 @@ class QOJ:
                     pdfs[f"{label}.pdf"] = urljoin(self.url, link.get("href") or link.get("src") or link.get("data"))
         if not pdfs:
             raise VPError("QOJ did not expose a statement PDF for this contest.")
-        return Contest("qoj", self.id, self.url, name, name, problem_map,
+        contest = Contest("qoj", self.id, self.url, name, name, problem_map,
                        Rules(duration, int(penalty[1]) if penalty else 20,
                              freeze_at=seconds(freeze[1]) if freeze else None,
                              problem_reveal_count=ccpc_reveal_count(name)), pdfs)
+        if provincial_parts(name):
+            contest.extra["provincial_group"] = self.account.get("provincial_group", "official")
+            ranking_group(contest)
+        return contest
 
     @staticmethod
     def _registry_duration(soup) -> int | None:
@@ -520,7 +525,7 @@ class QOJ:
         # Validate the complete original using its own window; keep the user's
         # timer and the cutoff for their submissions at the native VP duration.
         original = replace(contest, rules=replace(contest.rules, duration=duration))
-        if self._replay is not None and not fetch_final:
+        if self._replay is not None:
             return self._replay.at(contest, elapsed, released=released)
         # Imported ghosts contain final totals. Validate a separate original
         # event stream against those totals before exposing any partial scores.
@@ -534,6 +539,23 @@ class QOJ:
             final = self.external_reference_from_html(public.text, original)
         else:
             final = self.reference_from_html(html, original, duration, released=True)
+        native_rows = js_value(html, "standings")
+        has_import = (not isinstance(native_rows, list) or any(
+            not isinstance(row, list) or len(row) < 3 or not isinstance(row[2], list)
+            or len(row[2]) < 3 or row[2][2] in (3, 4) for row in native_rows))
+        if not final.complete and provincial_parts(contest.name) and not has_import:
+            try:
+                events = load_archive_submissions(original, metadata, web=public_web)
+                replay = OriginalReplay.from_provincial_archive(original, metadata, events)
+                verified_final = replay.at(original, duration, released=True)
+                classify(verified_final.rows, original)
+                contest.medals = original.medals
+                contest.extra["ranking_group_label"] = metadata["ranking_group_label"]
+                cache_archive_submissions(metadata, events)
+                self._replay = replay
+                return replay.at(contest, elapsed, released=released)
+            except VPError as exc:
+                return Reference(released=released, message=str(exc))
         contest.medals = original.medals
         final.released = released
         if not final.complete:

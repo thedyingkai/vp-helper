@@ -45,7 +45,7 @@ class Dashboard:
                  "None": "No Prize", "Unknown": "Unknown"}.get(self.prize, self.prize)
         result = self.rank + (f"\n{prize}" if prize else "")
         heading.add_row(Text(f" {clock(min(self.elapsed, self.contest.rules.duration))} / {clock(self.contest.rules.duration)}", style="bold default"),
-                        Text(self.contest.name, style="bold"), Text(""))
+                        Text(self.contest.name, style="bold"), Text(self.contest.extra.get("ranking_group_label", ""), style="dim"))
         table = Table(box=SCORE_BOX, padding=(0, 1), style="default",
                       header_style="bold black on #eeeeee", border_style="#bbbbbb",
                       show_edge=False, expand=True)
