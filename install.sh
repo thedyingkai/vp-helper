@@ -100,4 +100,22 @@ elif [[ -z "$vp_submit_path" && -d "$vp_release/third_party" ]]; then
     fi
 fi
 /usr/local/bin/vp --help
+vp_printfile=/usr/local/bin/printfile
+vp_printfile_target=/opt/vp-helper/current/venv/bin/printfile
+vp_icpc_printfile=/usr/local/bin/printfile.icpc
+"$vp_printfile_target" --help >/dev/null
+if [[ -L "$vp_printfile" && $(readlink "$vp_printfile") == "$vp_printfile_target" ]]; then
+    :
+elif [[ ! -e "$vp_printfile" && ! -L "$vp_printfile" ]]; then
+    ln -s -- "$vp_printfile_target" "$vp_printfile"
+elif [[ -f "$vp_printfile" && ! -L "$vp_printfile" && ! -e "$vp_icpc_printfile" && ! -L "$vp_icpc_printfile" &&
+        $(dpkg-query -S "$vp_printfile" 2>/dev/null) =~ ^icpc[0-9]{4}: ]]; then
+    dpkg-divert --local --rename --add --divert "$vp_icpc_printfile" "$vp_printfile"
+    if ! ln -s -- "$vp_printfile_target" "$vp_printfile"; then
+        dpkg-divert --local --rename --remove --divert "$vp_icpc_printfile" "$vp_printfile"
+        exit 1
+    fi
+else
+    printf 'Existing printfile retained. Delayed printing is available at %s\n' "$vp_printfile_target"
+fi
 printf '%s\n' 'Installed /usr/local/bin/vp. submit runs the selected existing platform script.'
