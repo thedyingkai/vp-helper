@@ -41,11 +41,18 @@ class QOJ:
     def _page(self, suffix: str = "", **params) -> BeautifulSoup:
         return self.web.soup(self.url + suffix, params={"locale": "en", **params})
 
-    def prepare(self) -> Contest:
+    def prepare(self, *, ucup: bool = False) -> Contest:
         soup = self._page()
         titles = [h.get_text(" ", strip=True) for h in soup.select("h1")]
         titles.extend(a.get_text(" ", strip=True) for a in soup.select('a[href*="?v="]'))
-        name = directory_name(titles)
+        if ucup:
+            name = next((title for title in titles if re.search(
+                r"\bUniversal Cup\b\.?\s+(?:Extra\s+)?(?:Stage|Semifinals?|Finals?|Warm[ -]up)\b", title, re.I)), None)
+            if name is None:
+                raise VPError("This QOJ contest does not have a Universal Cup title. Use its UCup contest ID.")
+            directory = re.sub(r'[\\/:*?"<>|\x00-\x1f]', " ", name).strip(" .")
+        else:
+            directory = name = directory_name(titles)
         problem_map = {}
         for row in soup.select("tr"):
             a = row.select_one(f'a[href*="/contest/{self.id}/problem/"]')
@@ -94,11 +101,13 @@ class QOJ:
                     pdfs[f"{label}.pdf"] = urljoin(self.url, link.get("href") or link.get("src") or link.get("data"))
         if not pdfs:
             raise VPError("QOJ did not expose a statement PDF for this contest.")
-        contest = Contest("qoj", self.id, self.url, name, name, problem_map,
+        contest = Contest("qoj", self.id, self.url, name, directory, problem_map,
                        Rules(duration, int(penalty[1]) if penalty else 20,
                              freeze_at=seconds(freeze[1]) if freeze else None,
                              problem_reveal_count=ccpc_reveal_count(name)), pdfs)
-        if provincial_parts(name):
+        if ucup:
+            contest.extra.update(ucup=True, ranking_group_label="All teams")
+        elif provincial_parts(name):
             contest.extra["provincial_group"] = self.account.get("provincial_group", "official")
             ranking_group(contest)
         return contest
@@ -372,43 +381,76 @@ class QOJ:
                 self._verdict_cache[item.id] = (None, item.verdict, time.monotonic() + 300 + int(item.id) % 300)
 
     @staticmethod
-    def reference_from_html(html: str, contest: Contest, elapsed: float, *, released: bool = False) -> Reference:
+    def reference_from_html(html: str, contest: Contest, elapsed: float, *, released: bool = False,
+                            handle: str = "") -> Reference:
+        ucup = bool(contest.extra.get("ucup"))
         raw_rows = js_value(html, "standings")
         raw_scores = js_value(html, "score")
         labels = js_value(html, "problems_id", list(contest.problems))
-        if not isinstance(raw_rows, list) or not isinstance(raw_scores, dict):
+        if ucup and raw_rows == raw_scores == []:
+            raw_scores = {}
+        if not isinstance(raw_rows, list) or not isinstance(raw_scores, dict) or not isinstance(labels, list):
             return Reference(message="QOJ did not provide the original scoreboard data.", released=released)
         if js_value(html, "icpc_partial_scores", False):
             return Reference(message="The original contest uses partial ICPC scores; its ranking rule is unsupported.", released=released)
+        if ucup and (labels != list(contest.problems) or js_value(html, "show_unofficial") is not True):
+            return Reference(message="QOJ did not return the full UCup scoreboard for these problems.", released=released)
         rows = []
+        seen = set()
         for raw in raw_rows:
+            if ucup and (not isinstance(raw, list) or len(raw) < 3 or type(raw[1]) not in (int, float) or raw[1] < 0
+                         or not isinstance(raw[2], list) or len(raw[2]) < 4):
+                return Reference(message="QOJ returned an incomplete UCup team row.", released=released)
             info = raw[2]
             # Imported category 3 may include original starred teams whose flags
             # were lost during import. Restore eligibility from the original archive.
-            if len(info) < 4 or info[2] not in (3, 4):
+            if (ucup and info[0] == handle) or (not ucup and (len(info) < 4 or info[2] not in (3, 4))):
                 continue
+            if ucup and (not isinstance(info[0], str) or info[0] in seen):
+                return Reference(message="QOJ returned invalid or duplicate UCup team IDs.", released=released)
+            seen.add(info[0])
             if info[0] not in raw_scores:
                 return Reference(message="An original QOJ team is missing problem results.", released=released)
             cells = {label: Cell() for label in contest.problems}
             values = raw_scores.get(info[0], {})
+            if ucup and not isinstance(values, (dict, list)):
+                return Reference(message="QOJ returned incomplete UCup problem results.", released=released)
             items = values.items() if isinstance(values, dict) else enumerate(values)
             for index, col in items:
+                if col is None:
+                    continue  # Sparse JSON arrays use null for unattempted problems.
                 if not isinstance(col, list) or not str(index).isdigit() or int(index) >= len(labels) or len(col) < 6:
+                    if ucup:
+                        return Reference(message="QOJ returned an unsupported UCup problem result.", released=released)
                     continue
                 label = labels[int(index)]
                 if label not in cells:
                     continue
-                solved = col[0] == col[4] and col[4] > 0
+                if ucup and (type(col[1]) not in (int, float) or type(col[3]) is not int or col[3] < 0):
+                    return Reference(message="QOJ returned an invalid UCup result time or attempt count.", released=released)
+                if ucup and elapsed < contest.rules.duration and col[1] > elapsed + 5:
+                    return Reference(message="QOJ has not provided a UCup scoreboard for the current VP time.", released=released)
+                # QOJ's ICPC renderer marks 97 separately and still counts it
+                # as one solved problem. Some UCup rounds have these results.
+                solved = (col[0] == col[4] and col[4] > 0) or (ucup and col[0] == 97)
                 # QOJ stores attempts before the selected submission, even
                 # when that last submission failed. Its own UI renders -N
                 # and ?N as col[3] + 1, not col[3].
                 cells[label] = (Cell(pending=int(col[3]) + 1) if col[5] else
                                 Cell(int(col[3]) + 1, 0, solved, int(col[1] // 60) if solved else None))
-            row = TeamScore(str(info[0]), info[3], cells, eligible=info[2] == 3,
-                            penalty_minutes=contest.rules.penalty_minutes)
-            if row.penalty != int(raw[1] // 60):
+            penalty = int(raw[1] // 60)
+            row = TeamScore(str(info[0]), info[3], cells, eligible=ucup or info[2] == 3,
+                            penalty_minutes=contest.rules.penalty_minutes,
+                            known_penalty=penalty if ucup else None)
+            if not ucup and row.penalty != penalty:
                 return Reference(message="The original QOJ penalty data does not match the contest scoring rule.", released=released)
             rows.append(row)
+        if ucup:
+            view = js_value(html, "ccpc_view")
+            if isinstance(view, dict) and view.get("n_revealed", 0) < len(labels):
+                return Reference(rows, complete=True, released=released,
+                                 message="QOJ has hidden problem labels in this UCup scoreboard.")
+            return Reference(rows, complete=True, statistics_complete=True, released=released)
         if not rows:
             return Reference(message="QOJ has no explicitly classified original contest ghosts.", released=released)
         medals = medals_from_html(html, contest.url + "/standings")
@@ -457,6 +499,13 @@ class QOJ:
             no_hidden = all(isinstance(col, list) and len(col) >= 6 and not col[5] for col in values)
             released = (self.start_time is not None and self._finished_start == self.start_time
                         and js_value(html, "my_name", "") == self.handle and no_hidden)
+        if contest.extra.get("ucup"):
+            # Use the account's native snapshot and its visible results across all
+            # time windows. The monitor counts the VP's own submissions separately.
+            if not self.handle or js_value(html, "my_name") != self.handle:
+                return Reference(message="Log in to QOJ in Firefox to read your UCup scoreboard.")
+            snapshot_elapsed = max(elapsed, time.time() - self.start_time) if self.start_time is not None else elapsed
+            return self.reference_from_html(html, contest, snapshot_elapsed, released=released, handle=self.handle)
         # Keep the public archive connection across metadata and event downloads.
         # This session carries none of the judge account's cookies.
         with requests.Session() as public_web:

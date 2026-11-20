@@ -1,8 +1,8 @@
 # VP Helper
 
-Ubuntu 上的 XCPC 虚拟参赛终端助手，支持 QOJ、Codeforces ICPC 比赛和 Codeforces Gym。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
+Ubuntu 上的 XCPC 虚拟参赛终端助手，支持 QOJ、UCup、Codeforces ICPC 比赛和 Codeforces Gym。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
 
-当前版本：0.1.20。
+当前版本：0.1.21。
 
 ## 安装
 
@@ -33,6 +33,7 @@ bash install.sh
 vp cf ID
 vp qoj ID
 vp gym ID
+vp ucup ID
 ```
 
 例如：
@@ -44,6 +45,8 @@ vp history
 ```
 
 也支持 `vp CONTEST_URL`。计分范围限定为 ICPC；普通 Codeforces Round 的 CF / IOI 计分会在开赛前被拒绝。
+
+`vp ucup 4607` 使用现有 QOJ 登录参加 UCup 成都站的原站 VP。`ID` 是 UCup 比赛链接里 `/contest/` 后面的数字，也可以直接使用 `vp https://contest.ucup.ac/contest/4607`。`All teams` 以原站当前合并榜为准，排名及每题 `submitted`、`attempted`、`accepted` 纳入所有可见队伍，包括各线上时段、现场和打星队。排名右边显示总队数，本人的 VP 计一次。榜单来自原站当前可见数据，随 VP 刷新。
 
 支持中文及英文省赛标题，标题无需包含 `ICPC` 或 `CCPC`。例如 `vp qoj 4707` 会识别为 `2026 Liaoning Pro`，采用原站的 5 小时赛长、4 小时封榜和 14 道题。省份和年份用于查找对应的原赛档案；明确标有 ICPC / CCPC 的省赛保留该系列信息，热身赛和邀请赛不会套用正式省赛档案。
 

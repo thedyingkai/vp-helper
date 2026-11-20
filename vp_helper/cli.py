@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 
 from rich.console import Console
 from rich.table import Table
@@ -181,7 +182,12 @@ def prepare_start(url: str) -> tuple[Path, dict]:
         raise VPError("Run vp in an interactive Ubuntu terminal.")
     if shutil.which("tmux") is None:
         raise VPError("tmux is missing; run the installer.")
-    platform, _, canonical = contest_url(url)
+    platform, ident, canonical = contest_url(url)
+    ucup = urlsplit(canonical).hostname == "contest.ucup.ac"
+    if ucup:
+        # UCup links use the same contest IDs on QOJ. Keep the QOJ account and
+        # submission configuration on the origin where the user logged in.
+        canonical = contest_id_url("qoj", ident)
     state_root = state_directory()
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with file_lock(state_root / "start.lock"):
@@ -195,6 +201,8 @@ def prepare_start(url: str) -> tuple[Path, dict]:
             if old.get("url") == canonical and (running or tmux_exists(old.get("tmux_session", ""))):
                 # A resumed session still needs a usable local submission file;
                 # refreshing it never starts or resets the native participation.
+                if ucup and not old["contest"].get("extra", {}).get("ucup"):
+                    raise VPError(f"This contest already has a QOJ session. Resume it with vp qoj {ident}.")
                 config = load_account(platform)
                 api = adapter(canonical, config)
                 if api.handle != old.get("handle"):
@@ -209,7 +217,7 @@ def prepare_start(url: str) -> tuple[Path, dict]:
         config = load_account(platform)
         api = adapter(canonical, config)
         console.print("Reading contest information…", markup=False)
-        contest = api.prepare()
+        contest = api.prepare(ucup=True) if ucup else api.prepare()
         root = desktop()
         root.mkdir(parents=True, exist_ok=True)
         contest.directory_name = " ".join(contest.directory_name.split())
@@ -271,6 +279,7 @@ def monitor(path: Path) -> None:
     with file_lock(path.with_suffix(".monitor.lock"), nonblocking=True):
         state = read_json(path)
         contest = Contest.from_dict(state["contest"])
+        ucup = bool(contest.extra.get("ucup"))
         config = read_json(config_directory() / "config.json")
         api = adapter(contest.url, config)
         if state.get("handle") and api.handle != state["handle"]:
@@ -344,7 +353,9 @@ def monitor(path: Path) -> None:
                              and api.submissions_complete and have_polled and all_final)
                 rank = "?" if frozen else str(rank_of(private, current_reference.rows)) if current_reference.complete and private.results_complete else "—"
                 shown_rank = rank_label(private, current_reference.rows) if current_reference.complete and private.results_complete and not frozen else rank
-                prize = prize_of(private, current_reference.rows, contest.medals) if finalized else ""
+                if ucup and current_reference.complete:
+                    shown_rank += f" / {len(current_reference.rows) + 1}"
+                prize = prize_of(private, current_reference.rows, contest.medals) if finalized and not ucup else ""
                 stats = statistics(current_reference.rows + [public], list(contest.problems)) if current_reference.statistics_complete and public.results_complete else None
                 shown_message = submission_error or reference_error or current_reference.message
                 if finalized and current_reference.replay is not None and not submission_error and not reference_error:
@@ -387,14 +398,14 @@ def main() -> None:
             history()
         elif len(args) == 2 and args[0] == "_monitor":
             monitor(Path(args[1]))
-        elif len(args) == 2 and args[0] in ("cf", "qoj", "gym"):
+        elif len(args) == 2 and args[0] in ("cf", "qoj", "gym", "ucup"):
             start(contest_id_url(*args))
         elif len(args) == 1 and args[0] not in ("-h", "--help"):
             start(args[0])
         elif args in ([], ["-h"], ["--help"]):
-            console.print("Usage: vp cf ID\n       vp qoj ID\n       vp gym ID\n       vp CONTEST_URL\n       vp history", markup=False)
+            console.print("Usage: vp cf ID\n       vp qoj ID\n       vp gym ID\n       vp ucup ID\n       vp CONTEST_URL\n       vp history", markup=False)
         else:
-            raise VPError("Usage: vp cf ID, vp qoj ID, vp gym ID or vp history")
+            raise VPError("Usage: vp cf ID, vp qoj ID, vp gym ID, vp ucup ID or vp history")
     except (VPError, OSError, subprocess.CalledProcessError) as exc:
         console.print("vp: " + str(exc), style="red", markup=False)
         raise SystemExit(1) from None

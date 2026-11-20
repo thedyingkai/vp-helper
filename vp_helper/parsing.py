@@ -12,9 +12,9 @@ from .provincial import provincial_name
 
 def contest_id_url(platform: str, ident: str) -> str:
     paths = {"cf": "https://codeforces.com/contest/", "qoj": "https://qoj.ac/contest/",
-             "gym": "https://codeforces.com/gym/"}
+             "gym": "https://codeforces.com/gym/", "ucup": "https://contest.ucup.ac/contest/"}
     if platform not in paths or not re.fullmatch(r"[0-9]+", ident) or int(ident) <= 0:
-        raise VPError("Use vp cf ID, vp qoj ID or vp gym ID with a positive numeric contest ID.")
+        raise VPError("Use vp cf ID, vp qoj ID, vp gym ID or vp ucup ID with a positive numeric contest ID.")
     return paths[platform] + str(int(ident))
 
 
@@ -25,7 +25,7 @@ def contest_url(url: str) -> tuple[str, str, str]:
     except ValueError:
         raise VPError("Invalid contest URL port.") from None
     if p.scheme not in ("http", "https") or p.username or p.password or port:
-        raise VPError("Use a QOJ, Codeforces contest or Codeforces Gym URL.")
+        raise VPError("Use a QOJ, UCup, Codeforces contest or Codeforces Gym URL.")
     if p.hostname in ("qoj.ac", "contest.ucup.ac"):
         match = re.fullmatch(r"/contest/(\d+)/?", p.path)
         platform = "qoj"
@@ -35,7 +35,7 @@ def contest_url(url: str) -> tuple[str, str, str]:
     else:
         match = None
     if not match:
-        raise VPError("Only QOJ contest, Codeforces contest and Codeforces Gym links are supported.")
+        raise VPError("Only QOJ, UCup, Codeforces contest and Codeforces Gym links are supported.")
     return platform, match[1], f"https://{p.hostname}{p.path.rstrip('/')}"
 
 
