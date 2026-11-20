@@ -10,11 +10,25 @@ from .models import Medals, VPError
 from .provincial import provincial_name
 
 
+UCUP_HOST = "contest.ucup.ac"
+
+
+def qoj_account_name(node) -> str:
+    if node is None:
+        return ""
+    path = urlsplit(node.get("href", "")).path.rstrip("/")
+    if path.startswith("/user/profile/"):
+        return path.rsplit("/", 1)[-1]
+    if "uoj-username" in node.get("class", []):
+        return node.get_text(strip=True)
+    return ""
+
+
 def contest_id_url(platform: str, ident: str) -> str:
     paths = {"cf": "https://codeforces.com/contest/", "qoj": "https://qoj.ac/contest/",
-             "gym": "https://codeforces.com/gym/", "ucup": "https://contest.ucup.ac/contest/"}
+             "gym": "https://codeforces.com/gym/", "ucup": f"https://{UCUP_HOST}/contest/"}
     if platform not in paths or not re.fullmatch(r"[0-9]+", ident) or int(ident) <= 0:
-        raise VPError("Use vp cf ID, vp qoj ID, vp gym ID or vp ucup ID with a positive numeric contest ID.")
+        raise VPError("Use vp cf ID, vp qoj ID, vp gym ID or ucup ID with a positive numeric contest ID.")
     return paths[platform] + str(int(ident))
 
 
@@ -26,9 +40,9 @@ def contest_url(url: str) -> tuple[str, str, str]:
         raise VPError("Invalid contest URL port.") from None
     if p.scheme not in ("http", "https") or p.username or p.password or port:
         raise VPError("Use a QOJ, UCup, Codeforces contest or Codeforces Gym URL.")
-    if p.hostname in ("qoj.ac", "contest.ucup.ac"):
+    if p.hostname in ("qoj.ac", UCUP_HOST):
         match = re.fullmatch(r"/contest/(\d+)/?", p.path)
-        platform = "qoj"
+        platform = "ucup" if p.hostname == UCUP_HOST else "qoj"
     elif p.hostname == "codeforces.com":
         match = re.fullmatch(r"/(?:contest|gym)/(\d+)/?", p.path)
         platform = "gym" if p.path.startswith("/gym/") else "cf"

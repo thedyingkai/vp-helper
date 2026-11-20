@@ -1,8 +1,8 @@
 # VP Helper
 
-Ubuntu 上的 XCPC 虚拟参赛终端助手，支持 QOJ、UCup、Codeforces ICPC 比赛和 Codeforces Gym。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
+Ubuntu 上的 XCPC 比赛终端助手，支持 QOJ、Codeforces ICPC、Codeforces Gym 的虚拟参赛和 UCup 队伍正式参赛。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
 
-当前版本：0.1.21。
+当前版本：0.1.22。
 
 ## 安装
 
@@ -14,7 +14,7 @@ cd vp-helper
 bash install.sh
 ```
 
-安装后可在任意目录使用 `vp` 和 `submit`。Python 运行时与依赖可从仓库离线安装；系统未安装 tmux 时，安装器通过 apt 安装 tmux。
+安装后可在任意目录使用 `vp`、`ucup` 和 `submit`。Python 运行时与依赖可从仓库离线安装；系统未安装 tmux 时，安装器通过 apt 安装 tmux。
 
 更新 Git 克隆的仓库后，重新运行安装器：
 
@@ -33,7 +33,6 @@ bash install.sh
 vp cf ID
 vp qoj ID
 vp gym ID
-vp ucup ID
 ```
 
 例如：
@@ -46,7 +45,9 @@ vp history
 
 也支持 `vp CONTEST_URL`。计分范围限定为 ICPC；普通 Codeforces Round 的 CF / IOI 计分会在开赛前被拒绝。
 
-`vp ucup 4607` 使用现有 QOJ 登录参加 UCup 成都站的原站 VP。`ID` 是 UCup 比赛链接里 `/contest/` 后面的数字，也可以直接使用 `vp https://contest.ucup.ac/contest/4607`。`All teams` 以原站当前合并榜为准，排名及每题 `submitted`、`attempted`、`accepted` 纳入所有可见队伍，包括各线上时段、现场和打星队。排名右边显示总队数，本人的 VP 计一次。榜单来自原站当前可见数据，随 VP 刷新。
+UCup 正式参赛使用 `ucup ID` 或 `ucup https://contest.ucup.ac/contest/ID`。先在虚拟机 Firefox 用队伍账号登录 [UCup 比赛站](https://contest.ucup.ac/login)，在对应比赛页报名并选择时段。到点运行命令，助手用报名表里该队伍的开始时间和赛长计时，从 `contest.ucup.ac` 获取题面、榜单和提交记录。比赛目录里的 `submit A.cpp` 使用同一个队伍账号，Firefox 登录单独保存在 `ucup` 配置里。旧写法 `vp ucup ID` 也进入这个正式参赛流程。
+
+UCup 的 `All teams` 使用原站合并榜上全部可见的队伍，包含原站开放的各时段、现场队和打星队。名次和队数来自当前可见榜单，本队只计一次。逐题显示计入榜单的提交次数、尝试队数和通过队数，封榜时按原站公开结果更新。
 
 支持中文及英文省赛标题，标题无需包含 `ICPC` 或 `CCPC`。例如 `vp qoj 4707` 会识别为 `2026 Liaoning Pro`，采用原站的 5 小时赛长、4 小时封榜和 14 道题。省份和年份用于查找对应的原赛档案；明确标有 ICPC / CCPC 的省赛保留该系列信息，热身赛和邀请赛不会套用正式省赛档案。
 

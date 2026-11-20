@@ -19,7 +19,10 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
+from .parsing import UCUP_HOST, qoj_account_name
+
 _MAX_SESSION_SIZE = 16 * 1024 * 1024
+_JUDGE_HOST = {"qoj": "qoj.ac", "ucup": UCUP_HOST, "cf": "codeforces.com", "gym": "codeforces.com"}
 _cache: dict = {}
 _lock = threading.Lock()
 
@@ -28,6 +31,10 @@ _lock = threading.Lock()
 class BrowserCookies:
     profile: Path
     cookie: str = field(repr=False)
+
+
+def is_ucup_team(handle: str) -> bool:
+    return isinstance(handle, str) and bool(re.fullmatch(r"ucup-team[0-9]+", handle))
 
 
 def _diagnose(diagnostics: list[str] | None, message: str) -> None:
@@ -249,7 +256,7 @@ def _persistent_cookies(database: Path, host: str, *, diagnostics: list[str] | N
 
 
 def browser_cookies(platform: str, account: dict, *, diagnostics: list[str] | None = None) -> list[BrowserCookies]:
-    host = "qoj.ac" if platform == "qoj" else "codeforces.com"
+    host = _JUDGE_HOST[platform]
     candidates = []
     for profile in firefox_profiles(account, diagnostics=diagnostics):
         persistent = _persistent_cookies(profile / "cookies.sqlite", host, diagnostics=diagnostics)
@@ -267,7 +274,8 @@ def browser_cookies(platform: str, account: dict, *, diagnostics: list[str] | No
 
 def _verify(platform: str, candidate: BrowserCookies, expected: str, *, diagnostics: list[str] | None = None) -> dict | None:
     from .http import WebSession
-    host = "qoj.ac" if platform == "qoj" else "codeforces.com"
+    host = _JUDGE_HOST[platform]
+    qoj_style = platform in ("qoj", "ucup")
     origin = "https://" + host
     web = None
     try:
@@ -296,20 +304,28 @@ def _verify(platform: str, candidate: BrowserCookies, expected: str, *, diagnost
             return None
         web.check(response)
         soup = BeautifulSoup(response.text, "html.parser")
-        selector = "ul.nav-pills, .navbar, nav, header, .nav-item.dropdown .dropdown-menu" if platform == "qoj" else "#header"
-        prefix = "/user/profile/" if platform == "qoj" else "/profile/"
+        selector = "ul.nav-pills, .navbar, nav, header, .nav-item.dropdown .dropdown-menu" if qoj_style else "#header"
+        prefix = "/user/profile/" if qoj_style else "/profile/"
         links = [a for header in soup.select(selector) for a in header.select("a[href]")]
         handles = {urlsplit(a.get("href", "")).path[len(prefix):].rstrip("/")
                    for a in links
                    if urlsplit(a["href"]).path.startswith(prefix)}
+        if platform == "ucup":
+            handles.update(qoj_account_name(node) for node in soup.select("ul.nav-pills .uoj-username"))
+            handles.discard("")
         if not handles:
             if any(urlsplit(a["href"]).path in ("/login", "/enter") for a in links):
                 _diagnose(diagnostics, f"{host} reports that the saved Firefox session is not logged in.")
             else:
                 _diagnose(diagnostics, "The logged-in account could not be identified in the page navigation; the page layout may have changed.")
             return None
+        if platform == "ucup":
+            handles = {handle for handle in handles if is_ucup_team(handle)}
+            if not handles:
+                _diagnose(diagnostics, "Sign in to the Universal Cup judging site with the issued ucup-team account.")
+                return None
         if expected:
-            handles = {h for h in handles if h == expected or platform != "qoj" and h.lower() == expected.lower()}
+            handles = {h for h in handles if h == expected or not qoj_style and h.lower() == expected.lower()}
             if not handles:
                 detail = "; QOJ handles are matched case-sensitively" if platform == "qoj" else ""
                 _diagnose(diagnostics, "The Firefox account does not match the configured handle" + detail + ".")
@@ -344,7 +360,7 @@ def refresh_browser_account(platform: str, account: dict, *, force: bool = False
     if account.get("cookie_source") == "manual":
         return False
     for candidate in browser_cookies(platform, account, diagnostics=diagnostics):
-        key = ("qoj" if platform == "qoj" else "cf", str(candidate.profile), account.get("handle", ""),
+        key = (_JUDGE_HOST[platform], str(candidate.profile), account.get("handle", ""),
                hashlib.sha256(candidate.cookie.encode()).digest())
         with _lock:
             cached = _cache.get(key)

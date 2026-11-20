@@ -23,6 +23,12 @@ if [[ -L /usr/local/bin/vp && "$(readlink /usr/local/bin/vp)" != /opt/vp-helper/
     printf '%s\n' '/usr/local/bin/vp points to another program.' >&2
     exit 1
 fi
+if [[ -e /usr/local/bin/ucup || -L /usr/local/bin/ucup ]]; then
+    if [[ ! -L /usr/local/bin/ucup || $(readlink /usr/local/bin/ucup) != /opt/vp-helper/current/venv/bin/ucup ]]; then
+        printf '%s\n' '/usr/local/bin/ucup already belongs to another program.' >&2
+        exit 1
+    fi
+fi
 if [[ -n "$vp_submit_path" && -e /usr/local/bin/submit && "$(readlink -f /usr/local/bin/submit)" != "$(readlink -f "$vp_submit_path")" ]]; then
     printf '%s\n' 'A different global submit already exists. It was left in place.' >&2
     exit 1
@@ -77,8 +83,10 @@ if [[ -d "$vp_source/third_party" ]]; then
     fi
     "$vp_release/venv/bin/python" -m pip install "${vp_pip_args[@]}" selectolax lxml robobrowser 'Werkzeug==0.16.1' 'prettytable<4'
 fi
+"$vp_release/venv/bin/ucup" --help >/dev/null
 ln -sfn "$vp_release" /opt/vp-helper/current
 ln -sfn /opt/vp-helper/current/venv/bin/vp /usr/local/bin/vp
+ln -sfn /opt/vp-helper/current/venv/bin/ucup /usr/local/bin/ucup
 if [[ -n "$vp_submit_path" && ! -e /usr/local/bin/submit ]]; then
     ln -s -- "$vp_submit_path" /usr/local/bin/submit
 elif [[ -z "$vp_submit_path" && -d "$vp_release/third_party" ]]; then
@@ -118,4 +126,4 @@ elif [[ -f "$vp_printfile" && ! -L "$vp_printfile" && ! -e "$vp_icpc_printfile" 
 else
     printf 'Existing printfile retained. Delayed printing is available at %s\n' "$vp_printfile_target"
 fi
-printf '%s\n' 'Installed /usr/local/bin/vp. submit runs the selected existing platform script.'
+printf '%s\n' 'Installed /usr/local/bin/vp and /usr/local/bin/ucup. submit runs the selected existing platform script.'

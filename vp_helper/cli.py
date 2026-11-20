@@ -12,16 +12,15 @@ import shutil
 import subprocess
 import sys
 import time
-from urllib.parse import urlsplit
 
 from rich.console import Console
 from rich.table import Table
 from rich import box
 
 from .models import Contest, Reference, Submission, VPError
-from .browser_login import browser_fields, refresh_browser_account
+from .browser_login import browser_fields, is_ucup_team, refresh_browser_account
 from .history_lines import enrich_history
-from .parsing import contest_url, contest_id_url
+from .parsing import UCUP_HOST, contest_url, contest_id_url
 from .receipts import ReceiptReader
 from .scoring import medal_lines, rank_of, rank_label, prize_of, recent_submissions, revealed_problems, score_submissions, statistics, submission_history
 from .storage import config_directory, desktop, file_lock, read_history, read_json, state_directory, update_history, write_json
@@ -32,6 +31,9 @@ console = Console()
 
 def adapter(url: str, config: dict):
     platform, _, canonical = contest_url(url)
+    if platform == "ucup":
+        from .ucup import UCup
+        return UCup(canonical, config.get("ucup", {}))
     if platform == "qoj":
         from .qoj import QOJ
         return QOJ(canonical, config.get("qoj", {}))
@@ -50,15 +52,17 @@ def load_account(platform: str) -> dict:
     if account != before:
         write_json(path, config)
     if not account.get("cookie") and account.get("cookie_source") != "manual":
-        site = "QOJ" if platform == "qoj" else "Codeforces"
+        site = {"qoj": "QOJ", "ucup": "the Universal Cup team account"}.get(platform, "Codeforces")
         details = "\n".join("  - " + reason for reason in dict.fromkeys(diagnostics))
         message = f"Could not import a verified Firefox login for {site}."
         if details:
             message += "\n" + details
+        if platform == "ucup":
+            message += f"\nSign in with your team account at https://{UCUP_HOST}/login."
         raise VPError(message + "\nUse the Firefox profile where you are logged in. "
                       f"If it is outside the detected directories, set {key}.firefox_profile in {path} "
                       "to the Profile Directory shown at about:support, then run the same vp command again.")
-    required = ("handle", "cookie") if platform == "qoj" else ("handle", "cookie", "api_key", "api_secret")
+    required = ("handle", "cookie") if platform in ("qoj", "ucup") else ("handle", "cookie", "api_key", "api_secret")
     missing = [key for key in required if not account.get(key)]
     if missing and not sys.stdin.isatty():
         raise VPError(f"Missing {platform} account fields {', '.join(missing)} in {path}")
@@ -71,6 +75,8 @@ def load_account(platform: str) -> dict:
                 raise VPError("An account field was empty; no native VP was started.")
             account[key] = value
         write_json(path, config)
+    if platform == "ucup" and not is_ucup_team(account["handle"]):
+        raise VPError(f"UCup requires the issued team account. Sign in at https://{UCUP_HOST}/login.")
     return config
 
 
@@ -99,7 +105,8 @@ def configure_submit(api, contest: Contest, directory: Path) -> None:
     bundled = bool(script and Path(script).is_symlink() and Path(os.readlink(script)) == selected)
     if not script or not Path(script).is_file() or not os.access(script, os.X_OK):
         raise VPError("The existing submit script is not installed; configure its path in ~/.config/vp/config.json.")
-    if contest.platform == "qoj":
+    qoj_style = contest.platform in ("qoj", "ucup")
+    if qoj_style:
         ids = [int(value) for value in contest.problems.values()]
         if not bundled and ids != list(range(ids[0], ids[0] + len(ids))):
             raise VPError("This QOJ contest has nonconsecutive problem IDs. Use the installed submit script with problem_ids support.")
@@ -122,7 +129,7 @@ def configure_submit(api, contest: Contest, directory: Path) -> None:
         else:
             raise VPError("The Gym submit script's configuration format must be connected before a native VP is started.")
     if bundled:
-        tool = Path("/opt/vp-helper/current/third_party") / ("qoj" if contest.platform == "qoj" else "cf_submit") / "submit"
+        tool = Path("/opt/vp-helper/current/third_party") / ("qoj" if qoj_style else "cf_submit") / "submit"
         if not tool.is_file() or not os.access(tool, os.X_OK):
             raise VPError(f"The bundled {contest.platform} submit script is missing; reinstall vp.")
         temporary = selected.with_name("submit.new")
@@ -182,16 +189,13 @@ def prepare_start(url: str) -> tuple[Path, dict]:
         raise VPError("Run vp in an interactive Ubuntu terminal.")
     if shutil.which("tmux") is None:
         raise VPError("tmux is missing; run the installer.")
-    platform, ident, canonical = contest_url(url)
-    ucup = urlsplit(canonical).hostname == "contest.ucup.ac"
-    if ucup:
-        # UCup links use the same contest IDs on QOJ. Keep the QOJ account and
-        # submission configuration on the origin where the user logged in.
-        canonical = contest_id_url("qoj", ident)
+    platform, _, canonical = contest_url(url)
+    official = platform == "ucup"
     state_root = state_directory()
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    pointer = state_root / ("current-ucup.json" if official else "current.json")
     with file_lock(state_root / "start.lock"):
-        current = read_json(state_root / "current.json")
+        current = read_json(pointer)
         if current:
             old = read_json(Path(current["state_path"]))
             running = (old.get("status") != "complete" and time.time() < old.get("start_time", 0)
@@ -201,8 +205,6 @@ def prepare_start(url: str) -> tuple[Path, dict]:
             if old.get("url") == canonical and (running or tmux_exists(old.get("tmux_session", ""))):
                 # A resumed session still needs a usable local submission file;
                 # refreshing it never starts or resets the native participation.
-                if ucup and not old["contest"].get("extra", {}).get("ucup"):
-                    raise VPError(f"This contest already has a QOJ session. Resume it with vp qoj {ident}.")
                 config = load_account(platform)
                 api = adapter(canonical, config)
                 if api.handle != old.get("handle"):
@@ -213,11 +215,12 @@ def prepare_start(url: str) -> tuple[Path, dict]:
                 bind_submit_context(directory, Path(current["state_path"]), old)
                 return Path(current["state_path"]), old
             if running:
-                raise VPError(f"A native VP is already running: {old.get('url')}. Open that URL to resume it.")
+                name = "An official UCup session" if official else "A native VP"
+                raise VPError(f"{name} is already running at {old.get('url')}. Open that contest's URL to resume it.")
         config = load_account(platform)
         api = adapter(canonical, config)
         console.print("Reading contest information…", markup=False)
-        contest = api.prepare(ucup=True) if ucup else api.prepare()
+        contest = api.prepare()
         root = desktop()
         root.mkdir(parents=True, exist_ok=True)
         contest.directory_name = " ".join(contest.directory_name.split())
@@ -227,19 +230,22 @@ def prepare_start(url: str) -> tuple[Path, dict]:
         for name, pdf in contest.pdfs.items():
             console.print("Downloading " + name, markup=False)
             api.web.pdf(pdf, directory / name)
-        console.print("Starting and verifying native virtual participation…", markup=False)
+        message = "Using the registered UCup contest window…" if official else "Starting and verifying native virtual participation…"
+        console.print(message, markup=False)
         started = api.start(contest)
-        name = "vp-" + platform + "-" + contest.contest_id + "-" + str(int(started))
+        prefix = "ucup" if official else "vp-" + platform
+        name = f"{prefix}-{contest.contest_id}-{int(started)}"
         path = state_root / (name + ".json")
         saved = read_json(path)
         state = {"contest": contest.to_dict(), "url": canonical, "start_time": started,
                  "handle": api.handle,
                  "directory": str(directory), "tmux_session": name, "status": "running",
-                 "submissions": saved.get("submissions", []), "recent": saved.get("recent", []),
-                 "history_path": str(root / "vp_history.csv")}
+                 "submissions": saved.get("submissions", []), "recent": saved.get("recent", [])}
+        if not official:
+            state["history_path"] = str(root / "vp_history.csv")
         write_json(path, state)
         bind_submit_context(directory, path, state)
-        write_json(state_root / "current.json", {"state_path": str(path)})
+        write_json(pointer, {"state_path": str(path)})
         console.print("Prepared " + str(directory), markup=False)
         return path, state
 
@@ -279,7 +285,8 @@ def monitor(path: Path) -> None:
     with file_lock(path.with_suffix(".monitor.lock"), nonblocking=True):
         state = read_json(path)
         contest = Contest.from_dict(state["contest"])
-        ucup = bool(contest.extra.get("ucup"))
+        official = contest.platform == "ucup"
+        ucup = official or bool(contest.extra.get("ucup"))
         config = read_json(config_directory() / "config.json")
         api = adapter(contest.url, config)
         if state.get("handle") and api.handle != state["handle"]:
@@ -350,13 +357,27 @@ def monitor(path: Path) -> None:
                                            public_elapsed, public=True, released=current_reference.released, name=api.handle)
                 all_final = all(s.verdict not in ("PENDING", "UNAVAILABLE") for s in submissions.values() if 0 <= s.time < contest.rules.duration)
                 finalized = (elapsed >= contest.rules.duration and not frozen and current_reference.complete
+                             and (not official or current_reference.released)
                              and api.submissions_complete and have_polled and all_final)
-                rank = "?" if frozen else str(rank_of(private, current_reference.rows)) if current_reference.complete and private.results_complete else "—"
-                shown_rank = rank_label(private, current_reference.rows) if current_reference.complete and private.results_complete and not frozen else rank
+                ranking_rows = current_reference.rows
+                if official:
+                    ranked_self = next((row for row in ranking_rows if row.id == api.handle), None)
+                    rank_hidden = False  # The server's public row already honors its freeze.
+                    stats_rows = ranking_rows
+                    stats_ready = current_reference.statistics_complete
+                else:
+                    ranked_self = private
+                    rank_hidden = frozen
+                    stats_rows = ranking_rows + [public]
+                    stats_ready = current_reference.statistics_complete and public.results_complete
+                rank_ready = current_reference.complete and ranked_self is not None and ranked_self.results_complete and not rank_hidden
+                rank = str(rank_of(ranked_self, ranking_rows)) if rank_ready else "?" if rank_hidden else "—"
+                shown_rank = rank_label(ranked_self, ranking_rows) if rank_ready else rank
                 if ucup and current_reference.complete:
-                    shown_rank += f" / {len(current_reference.rows) + 1}"
+                    team_count = len(ranking_rows) if official else len(ranking_rows) + 1
+                    shown_rank += f" / {team_count}"
                 prize = prize_of(private, current_reference.rows, contest.medals) if finalized and not ucup else ""
-                stats = statistics(current_reference.rows + [public], list(contest.problems)) if current_reference.statistics_complete and public.results_complete else None
+                stats = statistics(stats_rows, list(contest.problems)) if stats_ready else None
                 shown_message = submission_error or reference_error or current_reference.message
                 if finalized and current_reference.replay is not None and not submission_error and not reference_error:
                     shown_message = "Finished"
@@ -386,15 +407,27 @@ def monitor(path: Path) -> None:
                     row = {"start_time": datetime.fromtimestamp(state["start_time"], timezone.utc).isoformat(),
                            "contest": contest.name, "url": contest.url, "solved": private.solved,
                            "penalty": private.penalty if private.results_complete else "", "rank": rank if finalized else "", "prize": prize}
-                    if finalized or not preserve_final:
+                    if state.get("history_path") and (finalized or not preserve_final):
                         update_history(Path(state["history_path"]), row)
                 time.sleep(0.1)
 
 
-def main() -> None:
+def main(*, ucup_only: bool = False) -> None:
     args = sys.argv[1:]
+    command = "ucup" if ucup_only else "vp"
     try:
-        if args == ["history"]:
+        if ucup_only:
+            if args in ([], ["-h"], ["--help"]):
+                console.print("Usage: ucup ID\n       ucup https://contest.ucup.ac/contest/ID", markup=False)
+                return
+            if len(args) != 1:
+                raise VPError("Use ucup ID or the contest.ucup.ac contest URL.")
+            value = args[0]
+            url = value if "://" in value else contest_id_url("ucup", value)
+            if contest_url(url)[0] != "ucup":
+                raise VPError("Use the official contest.ucup.ac contest URL.")
+            start(url)
+        elif args == ["history"]:
             history()
         elif len(args) == 2 and args[0] == "_monitor":
             monitor(Path(args[1]))
@@ -403,14 +436,18 @@ def main() -> None:
         elif len(args) == 1 and args[0] not in ("-h", "--help"):
             start(args[0])
         elif args in ([], ["-h"], ["--help"]):
-            console.print("Usage: vp cf ID\n       vp qoj ID\n       vp gym ID\n       vp ucup ID\n       vp CONTEST_URL\n       vp history", markup=False)
+            console.print("Usage: vp cf ID\n       vp qoj ID\n       vp gym ID\n       vp CONTEST_URL\n       vp history\nOfficial Universal Cup: ucup ID", markup=False)
         else:
-            raise VPError("Usage: vp cf ID, vp qoj ID, vp gym ID, vp ucup ID or vp history")
+            raise VPError("Use vp cf ID, vp qoj ID, vp gym ID, vp history or ucup ID.")
     except (VPError, OSError, subprocess.CalledProcessError) as exc:
-        console.print("vp: " + str(exc), style="red", markup=False)
+        console.print(command + ": " + str(exc), style="red", markup=False)
         raise SystemExit(1) from None
     except KeyboardInterrupt:
         raise SystemExit(130) from None
+
+
+def ucup_main() -> None:
+    main(ucup_only=True)
 
 
 if __name__ == "__main__":

@@ -30,13 +30,16 @@ except ImportError:
     _IMPERSONATE = None
 
 import time
+from http.cookies import SimpleCookie
 from pathlib import Path
+import re
 from urllib.parse import urljoin, urlsplit
 from selectolax.lexbor import LexborHTMLParser
 from vp_helper.receipts import qoj_id_from_list, qoj_submission_id, qoj_submission_ids, record_receipt
 from vp_helper.models import VPError
 from vp_helper.submit_context import submission_configuration
-from vp_helper.browser_login import refresh_submission_login
+from vp_helper.browser_login import is_ucup_team, refresh_submission_login
+from vp_helper.parsing import UCUP_HOST
 
 LANG_MAPPING = {
     '.cpp': 'C++20',
@@ -56,14 +59,21 @@ if __name__ == '__main__' and (len(sys.argv) not in (2, 3)
 try:
     source = Path(sys.argv[1]) if __name__ == '__main__' else None
     config_path, contest = submission_configuration(source)
-    if contest.get('platform') not in (None, 'qoj'):
-        raise VPError('This directory is not configured for QOJ submissions.')
+    platform = contest.get('platform') or 'qoj'
+    if platform not in ('qoj', 'ucup'):
+        raise VPError('This directory is not configured for QOJ or UCup submissions.')
     missing = [key for key in ('name', 'base_url', 'problems', 'offset', 'user_agent', 'cookie')
                if key not in contest]
     if missing:
         raise VPError(f'{config_path} is missing QOJ fields: ' + ', '.join(missing)
                       + '. Run vp qoj ID to regenerate the submission configuration.')
-    refresh_submission_login(config_path, contest, 'qoj')
+    target = urlsplit(contest['base_url'])
+    if platform == 'ucup' and (target.scheme != 'https' or target.netloc != UCUP_HOST
+                               or not re.fullmatch(r'/contest/[0-9]+', target.path) or target.query or target.fragment):
+        raise VPError('Regenerate the team submission configuration with ucup ID.')
+    refresh_submission_login(config_path, contest, platform)
+    if platform == 'ucup' and not is_ucup_team(contest.get('handle', '')):
+        raise VPError(f'Sign in to the UCup team account at https://{UCUP_HOST}/login, then run ucup ID.')
 except VPError as exc:
     raise SystemExit('submit: ' + str(exc)) from None
 
@@ -74,7 +84,7 @@ contest_offset: int = contest['offset']
 user_agent: str = contest['user_agent']
 cookie: str = contest['cookie']
 
-def post_form(session, url, fields):
+def post_form(session, url, fields, **options):
     """POST a multipart form body.
 
     requests accepts the files= mapping below, but curl_cffi rejects it outright
@@ -99,8 +109,8 @@ def post_form(session, url, fields):
                              filename=spec[0], content_type=spec[2])
             else:
                 mime.addpart(name=name, data=content)
-        return session.post(url, multipart=mime, allow_redirects=False, timeout=(10, 40))
-    return session.post(url, files=fields, allow_redirects=False, timeout=(10, 40))
+        return session.post(url, multipart=mime, allow_redirects=False, timeout=(10, 40), **options)
+    return session.post(url, files=fields, allow_redirects=False, timeout=(10, 40), **options)
 
 
 def submit(url: str, lang: str, code: str, problem: str) -> None:
@@ -109,17 +119,21 @@ def submit(url: str, lang: str, code: str, problem: str) -> None:
         # matching its TLS fingerprint; overriding the User-Agent would break
         # that disguise, so only the cookie is set here.
         session = requests.Session(impersonate=_IMPERSONATE)
-        session.headers.update({'Cookie': cookie})
     else:
         session = requests.Session()
-        session.headers.update({
-            'User-Agent': user_agent,
-            'Cookie': cookie,
-        })
+        session.headers.update({'User-Agent': user_agent})
+    if platform == 'ucup':
+        for name, value in SimpleCookie(cookie).items():
+            session.cookies.set(name, value.value, domain=UCUP_HOST, path='/')
+    else:
+        session.headers.update({'Cookie': cookie})
     response = session.get(url, timeout=(10, 40))
     response.raise_for_status()
     if isinstance(response.url, str) and urlsplit(response.url).path in ('/login', '/enter'):
-        raise SystemExit('QOJ login expired. Log in to QOJ in Firefox, then run submit again.')
+        site = 'UCup with your team account' if platform == 'ucup' else 'QOJ'
+        raise SystemExit(f'Login expired. Sign in to {site} in Firefox, then run submit again.')
+    if platform == 'ucup' and urlsplit(response.url)[:3] != urlsplit(url)[:3]:
+        raise SystemExit('UCup did not return the requested contest problem.')
 
     parser = LexborHTMLParser(response.text)
     token_node = parser.css_first('input[name="_token"]')
@@ -150,12 +164,13 @@ def submit(url: str, lang: str, code: str, problem: str) -> None:
         'submit-answer': (None, 'answer')
     }
 
+    origin = 'https://' + urlsplit(contest_base_url).netloc
+    options = {'headers': {'Origin': origin, 'Referer': url, 'Sec-Fetch-Site': 'same-origin'}} if platform == 'ucup' else {}
     submitted_at = time.time()
     try:
-        submit_response = post_form(session, url, payload_files)
+        submit_response = post_form(session, url, payload_files, **options)
     except _RequestException:
         raise SystemExit('Server confirmation unavailable. Check the submissions page before retrying.') from None
-    origin = 'https://' + urlsplit(contest_base_url).netloc
     sid = qoj_submission_id(submit_response, origin)
     target = urljoin(url, submit_response.headers.get('Location', ''))
     destination = urlsplit(target)

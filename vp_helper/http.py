@@ -8,6 +8,7 @@ from urllib.parse import urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 from .models import VPError
+from .parsing import UCUP_HOST
 
 # ---------------------------------------------------------------------------
 # Transport selection.
@@ -47,6 +48,7 @@ _IMPERSONATED_USER_AGENT = (
 _RETRY_TOTAL = 2
 _RETRY_STATUS = frozenset({429, 502, 503, 504})
 _RETRY_BACKOFF = 1.0
+_BROWSER_PLATFORM = {"qoj.ac": "qoj", UCUP_HOST: "ucup", "codeforces.com": "gym"}
 
 
 def _browser_challenge(response) -> bool:
@@ -80,8 +82,7 @@ class WebSession:
         self.origin = origin.rstrip("/")
         self.account = account
         self._browser_checked = False
-        self._auto_refresh = (auto_refresh and bool(account.get("handle"))
-                              and urlsplit(self.origin).hostname in ("qoj.ac", "codeforces.com"))
+        self._browser_platform = _BROWSER_PLATFORM.get(urlsplit(self.origin).hostname) if auto_refresh and account.get("handle") else None
         if _IMPERSONATE:
             # curl_cffi supplies the browser headers that match the impersonated
             # fingerprint.  Do not override them with the config's user_agent --
@@ -108,11 +109,10 @@ class WebSession:
                 self.session.cookies.set(key, value.value)
 
     def _refresh_browser(self, *, force: bool = False) -> bool:
-        if not self._auto_refresh:
+        if not self._browser_platform:
             return False
         from .browser_login import refresh_browser_account
-        platform = "qoj" if urlsplit(self.origin).hostname == "qoj.ac" else "gym"
-        if not refresh_browser_account(platform, self.account, force=force):
+        if not refresh_browser_account(self._browser_platform, self.account, force=force):
             return False
         self.session.cookies.clear()
         self._set_cookies(self.account["cookie"])

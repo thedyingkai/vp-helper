@@ -13,7 +13,7 @@ import requests
 from .http import WebSession, form_values
 from .models import Cell, Contest, Reference, Rules, Submission, TeamScore, VPError
 from .originals import OriginalReplay, cache_archive_submissions, classify, eligibility_lookup, identity, load_archive_submissions, load_metadata, lookup_team
-from .parsing import ccpc_reveal_count, directory_name, js_value, medals_from_html, seconds, timestamp
+from .parsing import ccpc_reveal_count, directory_name, js_value, medals_from_html, qoj_account_name, seconds, timestamp
 from .provincial import provincial_parts, ranking_group
 from .scoring import verdict
 
@@ -42,7 +42,9 @@ class QOJ:
         return self.web.soup(self.url + suffix, params={"locale": "en", **params})
 
     def prepare(self, *, ucup: bool = False) -> Contest:
-        soup = self._page()
+        return self._prepare(self._page(), ucup=ucup)
+
+    def _prepare(self, soup: BeautifulSoup, *, ucup: bool = False, duration: int | None = None) -> Contest:
         titles = [h.get_text(" ", strip=True) for h in soup.select("h1")]
         titles.extend(a.get_text(" ", strip=True) for a in soup.select('a[href*="?v="]'))
         if ucup:
@@ -70,18 +72,18 @@ class QOJ:
         penalty = re.search(r"Penalty:\s*(\d+)\s*minute", text)
         # Registrants can choose a shorter rated-VP window. It is not the
         # contest duration (4582 already has two-hour rated participations).
-        duration = None
-        listing = self.web.soup(self.origin + "/contests", params={"locale": "en"})
-        for row in listing.select("tr"):
-            if not any(urlsplit(a.get("href", "")).path == f"/contest/{self.id}" for a in row.select("a")):
-                continue
-            raw = row.get_text(" ", strip=True)
-            match = re.search(r"([\d.]+)\s*hours?", raw)
-            if match:
-                duration = int(float(match[1]) * 3600)
-            match = re.search(r"(\d+)\s*minutes?", raw)
-            if match and not duration:
-                duration = int(match[1]) * 60
+        if duration is None:
+            listing = self.web.soup(self.origin + "/contests", params={"locale": "en"})
+            for row in listing.select("tr"):
+                if not any(urlsplit(a.get("href", "")).path == f"/contest/{self.id}" for a in row.select("a")):
+                    continue
+                raw = row.get_text(" ", strip=True)
+                match = re.search(r"([\d.]+)\s*hours?", raw)
+                if match:
+                    duration = int(float(match[1]) * 3600)
+                match = re.search(r"(\d+)\s*minutes?", raw)
+                if match and not duration:
+                    duration = int(match[1]) * 60
         if not duration:
             duration = self._registry_duration(self._page("/registrants"))
         if not duration:
@@ -151,11 +153,15 @@ class QOJ:
                 return max(records)
         return None
 
+    def _matches_account(self, soup: BeautifulSoup) -> bool:
+        nav = soup.select_one("ul.nav-pills")
+        return bool(self.handle and nav and any(qoj_account_name(node) == self.handle
+                                                for node in nav.select("a[href], .uoj-username")))
+
     def start(self, contest: Contest) -> float:
         current = self._registration(duration=contest.rules.duration)
         soup = self._page()
-        nav = soup.select_one("ul.nav-pills")
-        if not nav or not any(urlsplit(a.get("href", "")).path == f"/user/profile/{self.handle}" for a in nav.select("a")):
+        if not self._matches_account(soup):
             raise VPError("The QOJ login cookie does not belong to the configured handle.")
         if current and time.time() < current[0] + current[1]:
             self.start_time = current[0]
@@ -383,7 +389,8 @@ class QOJ:
     @staticmethod
     def reference_from_html(html: str, contest: Contest, elapsed: float, *, released: bool = False,
                             handle: str = "") -> Reference:
-        ucup = bool(contest.extra.get("ucup"))
+        official = contest.platform == "ucup"
+        ucup = official or bool(contest.extra.get("ucup"))
         raw_rows = js_value(html, "standings")
         raw_scores = js_value(html, "score")
         labels = js_value(html, "problems_id", list(contest.problems))
@@ -404,7 +411,7 @@ class QOJ:
             info = raw[2]
             # Imported category 3 may include original starred teams whose flags
             # were lost during import. Restore eligibility from the original archive.
-            if (ucup and info[0] == handle) or (not ucup and (len(info) < 4 or info[2] not in (3, 4))):
+            if (ucup and not official and info[0] == handle) or (not ucup and (len(info) < 4 or info[2] not in (3, 4))):
                 continue
             if ucup and (not isinstance(info[0], str) or info[0] in seen):
                 return Reference(message="QOJ returned invalid or duplicate UCup team IDs.", released=released)
@@ -428,7 +435,7 @@ class QOJ:
                     continue
                 if ucup and (type(col[1]) not in (int, float) or type(col[3]) is not int or col[3] < 0):
                     return Reference(message="QOJ returned an invalid UCup result time or attempt count.", released=released)
-                if ucup and elapsed < contest.rules.duration and col[1] > elapsed + 5:
+                if ucup and not official and elapsed < contest.rules.duration and col[1] > elapsed + 5:
                     return Reference(message="QOJ has not provided a UCup scoreboard for the current VP time.", released=released)
                 # QOJ's ICPC renderer marks 97 separately and still counts it
                 # as one solved problem. Some UCup rounds have these results.
