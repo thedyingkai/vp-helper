@@ -154,11 +154,19 @@ def board_metadata(config: dict, teams: list | dict, contest: Contest, source: s
             team_name = name(team.get("name", team.get("team_name")))
             organization = (name(team["organization"]) if "organization" in team else
                             organizations_by_id[str(team["organization_id"])])
-            if not isinstance(team.get("members"), list):
+            raw_members = team.get("members", [])
+            if not isinstance(raw_members, list):
                 raise ValueError("unsupported team identity fields")
-            members = [name(member) for member in team["members"]]
-            projected.append({"id": str(team.get("team_id", team.get("id", key))),
-                              "name": f"{organization} - {team_name} - {', '.join(members)}", "official": official})
+            members = [name(member) for member in raw_members]
+            label = f"{organization} - {team_name}"
+            if members:
+                label += " - " + ", ".join(members)
+            entry = {"id": str(team.get("team_id", team.get("id", key))), "name": label, "official": official}
+            if not members:
+                # Some archives omit the member list. Both encodings still
+                # identify the same team by its exact organization and name.
+                entry["aliases"] = [label + " - "]
+            projected.append(entry)
             if provincial and provincial_flags:
                 projected[-1]["group"] = division
         result = {"version": 1, "contest_name": contest.name, "duration": duration,

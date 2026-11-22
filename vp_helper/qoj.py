@@ -41,12 +41,17 @@ class QOJ:
     def _page(self, suffix: str = "", **params) -> BeautifulSoup:
         return self.web.soup(self.url + suffix, params={"locale": "en", **params})
 
-    def prepare(self, *, ucup: bool = False) -> Contest:
-        return self._prepare(self._page(), ucup=ucup)
+    def prepare(self) -> Contest:
+        return self._prepare(self._page())
 
-    def _prepare(self, soup: BeautifulSoup, *, ucup: bool = False, duration: int | None = None) -> Contest:
+    @staticmethod
+    def _titles(soup: BeautifulSoup) -> list[str]:
         titles = [h.get_text(" ", strip=True) for h in soup.select("h1")]
         titles.extend(a.get_text(" ", strip=True) for a in soup.select('a[href*="?v="]'))
+        return titles
+
+    def _prepare(self, soup: BeautifulSoup, *, ucup: bool = False, duration: int | None = None) -> Contest:
+        titles = self._titles(soup)
         if ucup:
             name = next((title for title in titles if re.search(
                 r"\bUniversal Cup\b\.?\s+(?:Extra\s+)?(?:Stage|Semifinals?|Finals?|Warm[ -]up)\b", title, re.I)), None)
@@ -108,7 +113,7 @@ class QOJ:
                              freeze_at=seconds(freeze[1]) if freeze else None,
                              problem_reveal_count=ccpc_reveal_count(name)), pdfs)
         if ucup:
-            contest.extra.update(ucup=True, ranking_group_label="All teams")
+            contest.extra["ranking_group_label"] = "All teams"
         elif provincial_parts(name):
             contest.extra["provincial_group"] = self.account.get("provincial_group", "official")
             ranking_group(contest)
@@ -387,10 +392,8 @@ class QOJ:
                 self._verdict_cache[item.id] = (None, item.verdict, time.monotonic() + 300 + int(item.id) % 300)
 
     @staticmethod
-    def reference_from_html(html: str, contest: Contest, elapsed: float, *, released: bool = False,
-                            handle: str = "") -> Reference:
-        official = contest.platform == "ucup"
-        ucup = official or bool(contest.extra.get("ucup"))
+    def reference_from_html(html: str, contest: Contest, elapsed: float, *, released: bool = False) -> Reference:
+        ucup = contest.platform == "ucup"
         raw_rows = js_value(html, "standings")
         raw_scores = js_value(html, "score")
         labels = js_value(html, "problems_id", list(contest.problems))
@@ -411,7 +414,7 @@ class QOJ:
             info = raw[2]
             # Imported category 3 may include original starred teams whose flags
             # were lost during import. Restore eligibility from the original archive.
-            if (ucup and not official and info[0] == handle) or (not ucup and (len(info) < 4 or info[2] not in (3, 4))):
+            if not ucup and (len(info) < 4 or info[2] not in (3, 4)):
                 continue
             if ucup and (not isinstance(info[0], str) or info[0] in seen):
                 return Reference(message="QOJ returned invalid or duplicate UCup team IDs.", released=released)
@@ -435,8 +438,6 @@ class QOJ:
                     continue
                 if ucup and (type(col[1]) not in (int, float) or type(col[3]) is not int or col[3] < 0):
                     return Reference(message="QOJ returned an invalid UCup result time or attempt count.", released=released)
-                if ucup and not official and elapsed < contest.rules.duration and col[1] > elapsed + 5:
-                    return Reference(message="QOJ has not provided a UCup scoreboard for the current VP time.", released=released)
                 # QOJ's ICPC renderer marks 97 separately and still counts it
                 # as one solved problem. Some UCup rounds have these results.
                 solved = (col[0] == col[4] and col[4] > 0) or (ucup and col[0] == 97)
@@ -475,6 +476,19 @@ class QOJ:
         return Reference(rows, complete=True, statistics_complete=True, released=released)
 
     def reference(self, contest: Contest, elapsed: float) -> Reference:
+        if contest.extra.get("ucup"):
+            # Older releases saved QOJ mirrors with a UCup label. Recover
+            # the original event name while keeping the same native VP clock.
+            titles = self._titles(self._page())
+            contest.extra.pop("ucup")
+            if contest.extra.get("ranking_group_label") == "All teams":
+                contest.extra.pop("ranking_group_label")
+            try:
+                contest.name = directory_name(titles)
+            except VPError:
+                pass
+            if provincial_parts(contest.name):
+                contest.extra.setdefault("provincial_group", self.account.get("provincial_group", "official"))
         soup = self._page("/standings", show_unofficial="true")
         html = str(soup)
         released = False
@@ -506,13 +520,6 @@ class QOJ:
             no_hidden = all(isinstance(col, list) and len(col) >= 6 and not col[5] for col in values)
             released = (self.start_time is not None and self._finished_start == self.start_time
                         and js_value(html, "my_name", "") == self.handle and no_hidden)
-        if contest.extra.get("ucup"):
-            # Use the account's native snapshot and its visible results across all
-            # time windows. The monitor counts the VP's own submissions separately.
-            if not self.handle or js_value(html, "my_name") != self.handle:
-                return Reference(message="Log in to QOJ in Firefox to read your UCup scoreboard.")
-            snapshot_elapsed = max(elapsed, time.time() - self.start_time) if self.start_time is not None else elapsed
-            return self.reference_from_html(html, contest, snapshot_elapsed, released=released, handle=self.handle)
         # Keep the public archive connection across metadata and event downloads.
         # This session carries none of the judge account's cookies.
         with requests.Session() as public_web:

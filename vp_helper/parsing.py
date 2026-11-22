@@ -32,7 +32,7 @@ def contest_id_url(platform: str, ident: str) -> str:
     return paths[platform] + str(int(ident))
 
 
-def contest_url(url: str) -> tuple[str, str, str]:
+def contest_url(url: str, *, for_vp: bool = False) -> tuple[str, str, str]:
     p = urlsplit(url)
     try:
         port = p.port
@@ -40,17 +40,20 @@ def contest_url(url: str) -> tuple[str, str, str]:
         raise VPError("Invalid contest URL port.") from None
     if p.scheme not in ("http", "https") or p.username or p.password or port:
         raise VPError("Use a QOJ, UCup, Codeforces contest or Codeforces Gym URL.")
-    if p.hostname in ("qoj.ac", UCUP_HOST):
+    host = p.hostname
+    if host in ("qoj.ac", UCUP_HOST):
         match = re.fullmatch(r"/contest/(\d+)/?", p.path)
-        platform = "ucup" if p.hostname == UCUP_HOST else "qoj"
-    elif p.hostname == "codeforces.com":
+        if for_vp and host == UCUP_HOST:
+            host = "qoj.ac"
+        platform = "ucup" if host == UCUP_HOST else "qoj"
+    elif host == "codeforces.com":
         match = re.fullmatch(r"/(?:contest|gym)/(\d+)/?", p.path)
         platform = "gym" if p.path.startswith("/gym/") else "cf"
     else:
         match = None
     if not match:
         raise VPError("Only QOJ, UCup, Codeforces contest and Codeforces Gym links are supported.")
-    return platform, match[1], f"https://{p.hostname}{p.path.rstrip('/')}"
+    return platform, match[1], f"https://{host}{p.path.rstrip('/')}"
 
 
 def seconds(value: str) -> int:

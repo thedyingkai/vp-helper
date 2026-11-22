@@ -2,7 +2,7 @@
 
 Ubuntu 上的 XCPC 比赛终端助手，支持 QOJ、Codeforces ICPC、Codeforces Gym 的虚拟参赛和 UCup 队伍正式参赛。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
 
-当前版本：0.1.22。
+当前版本：0.1.23。
 
 ## 安装
 
@@ -43,9 +43,9 @@ submit A.cpp
 vp history
 ```
 
-也支持 `vp CONTEST_URL`。计分范围限定为 ICPC；普通 Codeforces Round 的 CF / IOI 计分会在开赛前被拒绝。
+也支持 `vp CONTEST_URL`。用 `vp` 打开 `contest.ucup.ac` 的比赛链接时，程序会按相同的比赛 ID 接入 QOJ 个人 VP。计分范围限定为 ICPC；普通 Codeforces Round 的 CF / IOI 计分会在开赛前被拒绝。
 
-UCup 正式参赛使用 `ucup ID` 或 `ucup https://contest.ucup.ac/contest/ID`。先在虚拟机 Firefox 用队伍账号登录 [UCup 比赛站](https://contest.ucup.ac/login)，在对应比赛页报名并选择时段。到点运行命令，助手用报名表里该队伍的开始时间和赛长计时，从 `contest.ucup.ac` 获取题面、榜单和提交记录。比赛目录里的 `submit A.cpp` 使用同一个队伍账号，Firefox 登录单独保存在 `ucup` 配置里。旧写法 `vp ucup ID` 也进入这个正式参赛流程。
+UCup 正式参赛使用 `ucup ID` 或 `ucup https://contest.ucup.ac/contest/ID`。先在虚拟机 Firefox 用队伍账号登录 [UCup 比赛站](https://contest.ucup.ac/login)，在对应比赛页报名并选择时段。到点运行命令，助手用报名表里该队伍的开始时间和赛长计时，从 `contest.ucup.ac` 获取题面、榜单和提交记录。比赛目录里的 `submit A.cpp` 使用同一个队伍账号，Firefox 登录单独保存在 `ucup` 配置里。
 
 UCup 的 `All teams` 使用原站合并榜上全部可见的队伍，包含原站开放的各时段、现场队和打星队。名次和队数来自当前可见榜单，本队只计一次。逐题显示计入榜单的提交次数、尝试队数和通过队数，封榜时按原站公开结果更新。
 

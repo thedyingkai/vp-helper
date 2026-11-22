@@ -202,7 +202,10 @@ def prepare_start(url: str) -> tuple[Path, dict]:
                        + old.get("contest", {}).get("rules", {}).get("duration", 0))
             # A reboot removes tmux sessions, but an ongoing VP can still be
             # resumed from its saved state; start() recreates the missing session.
-            if old.get("url") == canonical and (running or tmux_exists(old.get("tmux_session", ""))):
+            saved_url = old.get("url")
+            if saved_url and old.get("contest", {}).get("platform") == "qoj":
+                saved_url = contest_url(saved_url, for_vp=True)[2]
+            if saved_url == canonical and (running or tmux_exists(old.get("tmux_session", ""))):
                 # A resumed session still needs a usable local submission file;
                 # refreshing it never starts or resets the native participation.
                 config = load_account(platform)
@@ -286,13 +289,15 @@ def monitor(path: Path) -> None:
         state = read_json(path)
         contest = Contest.from_dict(state["contest"])
         official = contest.platform == "ucup"
-        ucup = official or bool(contest.extra.get("ucup"))
+        if not official and contest.extra.get("ucup") and contest.extra.get("ranking_group_label") == "All teams":
+            contest.extra.pop("ranking_group_label")
         config = read_json(config_directory() / "config.json")
-        api = adapter(contest.url, config)
+        judge_url = contest_url(contest.url, for_vp=contest.platform == "qoj")[2]
+        api = adapter(judge_url, config)
         if state.get("handle") and api.handle != state["handle"]:
             raise VPError("The configured account changed; restore this VP's account before resuming it.")
         api.start_time = state["start_time"]
-        reference_api = adapter(contest.url, config)
+        reference_api = adapter(judge_url, config)
         reference_api.start_time = state["start_time"]
         submissions = {x["id"]: Submission(**x) for x in state.get("submissions", [])}
         final_score_key = (score_submissions(list(submissions.values()), list(contest.problems),
@@ -373,10 +378,9 @@ def monitor(path: Path) -> None:
                 rank_ready = current_reference.complete and ranked_self is not None and ranked_self.results_complete and not rank_hidden
                 rank = str(rank_of(ranked_self, ranking_rows)) if rank_ready else "?" if rank_hidden else "—"
                 shown_rank = rank_label(ranked_self, ranking_rows) if rank_ready else rank
-                if ucup and current_reference.complete:
-                    team_count = len(ranking_rows) if official else len(ranking_rows) + 1
-                    shown_rank += f" / {team_count}"
-                prize = prize_of(private, current_reference.rows, contest.medals) if finalized and not ucup else ""
+                if official and current_reference.complete:
+                    shown_rank += f" / {len(ranking_rows)}"
+                prize = prize_of(private, current_reference.rows, contest.medals) if finalized and not official else ""
                 stats = statistics(stats_rows, list(contest.problems)) if stats_ready else None
                 shown_message = submission_error or reference_error or current_reference.message
                 if finalized and current_reference.replay is not None and not submission_error and not reference_error:
@@ -431,10 +435,12 @@ def main(*, ucup_only: bool = False) -> None:
             history()
         elif len(args) == 2 and args[0] == "_monitor":
             monitor(Path(args[1]))
-        elif len(args) == 2 and args[0] in ("cf", "qoj", "gym", "ucup"):
+        elif len(args) == 2 and args[0] in ("cf", "qoj", "gym"):
             start(contest_id_url(*args))
+        elif len(args) == 2 and args[0] == "ucup":
+            raise VPError("Use ucup ID for official UCup participation. Use vp qoj ID for a QOJ VP.")
         elif len(args) == 1 and args[0] not in ("-h", "--help"):
-            start(args[0])
+            start(contest_url(args[0], for_vp=True)[2])
         elif args in ([], ["-h"], ["--help"]):
             console.print("Usage: vp cf ID\n       vp qoj ID\n       vp gym ID\n       vp CONTEST_URL\n       vp history\nOfficial Universal Cup: ucup ID", markup=False)
         else:

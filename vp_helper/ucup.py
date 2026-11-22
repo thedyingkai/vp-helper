@@ -75,7 +75,7 @@ class UCup(QOJ):
         html = str(soup)
         if not is_ucup_team(self.handle) or js_value(html, "my_name") != self.handle:
             raise VPError(f"Sign in with your UCup team account in Firefox at https://{UCUP_HOST}/login.")
-        result = self.reference_from_html(html, contest, elapsed, handle=self.handle)
+        result = self.reference_from_html(html, contest, elapsed)
         result.released = (elapsed >= contest.rules.duration and "Contest Ended" in soup.stripped_strings
                            and not any(cell.pending for row in result.rows for cell in row.cells.values()))
         return result
